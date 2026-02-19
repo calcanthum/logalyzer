@@ -37,7 +37,7 @@ import threading
 import argparse
 import json
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 # Palette
@@ -841,7 +841,36 @@ class FilterEdit(urwid.Edit):
         return super().keypress(size, key)
 
 
-class LevelPill(urwid.WidgetWrap):
+class BasePill(urwid.WidgetWrap):
+    """
+    Shared base for pill widgets (LevelPill, FieldPill).
+    Owns: SelectableIcon/AttrMap construction, selectable(), mouse routing.
+    Subclasses implement: _redraw(), _on_left(), _on_right().
+    """
+
+    def __init__(self, initial_attr: str, focus_attr: str | None = None):
+        self._icon = urwid.SelectableIcon('', 0)
+        self._am   = urwid.AttrMap(self._icon, initial_attr, focus_attr)
+        super().__init__(self._am)
+
+    def selectable(self):
+        return True
+
+    def mouse_event(self, size, event, button, col, row, focus):
+        if event == 'mouse press' and button == 1:
+            self._on_left()
+            return True
+        if event == 'mouse press' and button == 3:
+            self._on_right()
+            return True
+        return False
+
+    def _on_left(self):  raise NotImplementedError
+    def _on_right(self): raise NotImplementedError
+    def _redraw(self):   raise NotImplementedError
+
+
+class LevelPill(BasePill):
     signals = ['change']
 
     # (label, normal_attr, whitelist_attr, blacklist_attr)
@@ -853,14 +882,12 @@ class LevelPill(urwid.WidgetWrap):
     }
 
     def __init__(self, level_key: str):
-        self.level_key                     = level_key
+        self.level_key                            = level_key
         self._label, self._na, self._aa, self._ia = self._DEFS[level_key]
         self._count   = 0
         self.active   = False   # True when any filter mode is on
         self.inverted = False   # True when in blacklist (exclusion) mode
-        self._icon    = urwid.SelectableIcon('', 0)
-        self._am      = urwid.AttrMap(self._icon, self._na)
-        super().__init__(self._am)
+        super().__init__(self._na)
         self._redraw()
 
     def _redraw(self):
@@ -889,23 +916,14 @@ class LevelPill(urwid.WidgetWrap):
         self.inverted = False
         self._redraw()
 
-    def selectable(self):
-        return True
-
     def keypress(self, size, key):
         if key in ('enter', ' '):
             self._fire(invert=False)
             return
         return key
 
-    def mouse_event(self, size, event, button, col, row, focus):
-        if event == 'mouse press' and button == 1:
-            self._fire(invert=False)
-            return True
-        if event == 'mouse press' and button == 3:
-            self._fire(invert=True)
-            return True
-        return False
+    def _on_left(self):  self._fire(invert=False)
+    def _on_right(self): self._fire(invert=True)
 
     def _fire(self, invert: bool = False) -> None:
         already_active = self.active and (self.inverted == invert)
@@ -914,7 +932,8 @@ class LevelPill(urwid.WidgetWrap):
         self._redraw()
         urwid.emit_signal(self, 'change', self, self.active)
 
-class FieldPill(urwid.WidgetWrap):
+
+class FieldPill(BasePill):
     """
     Removable pill representing an active field filter value.
 
@@ -932,9 +951,7 @@ class FieldPill(urwid.WidgetWrap):
         self.label      = label
         self.value      = value
         self.inverted   = inverted
-        self._icon = urwid.SelectableIcon('', 0)
-        self._am   = urwid.AttrMap(self._icon, self._pill_attr(), 'fpill_a')
-        super().__init__(self._am)
+        super().__init__(self._pill_attr(), 'fpill_a')
         self._redraw()
 
     def _pill_attr(self) -> str:
@@ -946,22 +963,14 @@ class FieldPill(urwid.WidgetWrap):
         self._icon.set_text(f' {prefix}{self.label}:{short_val} \u00d7 ')
         self._am.set_attr_map({None: self._pill_attr()})
 
-    def selectable(self): return True
-
     def keypress(self, size, key):
         if key in ('enter', ' ', 'delete', 'backspace'):
             urwid.emit_signal(self, 'remove', self)
             return
         return key
 
-    def mouse_event(self, size, event, button, col, row, focus):
-        if event == 'mouse press' and button == 1:
-            urwid.emit_signal(self, 'remove', self)
-            return True
-        if event == 'mouse press' and button == 3:
-            urwid.emit_signal(self, 'toggle_invert', self)
-            return True
-        return False
+    def _on_left(self):  urwid.emit_signal(self, 'remove', self)
+    def _on_right(self): urwid.emit_signal(self, 'toggle_invert', self)
 
 
 class ClickableListBox(urwid.ListBox):
