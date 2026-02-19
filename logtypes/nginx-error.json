@@ -1,0 +1,78 @@
+{
+  "_comment": "Nginx error log — YYYY/MM/DD HH:MM:SS [level] pid#tid: *cid message[, client: IP, ...]",
+  "id": "nginx_error",
+  "name": "Nginx Error Log",
+
+  "detect": {
+    "filename_keywords": ["error"],
+    "content_regex": "^\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2} \\[\\w+\\] \\d+#\\d+:"
+  },
+
+  "fields": [
+    {
+      "type": "timestamp",
+      "dtype": "timestamp",
+      "regex": "^(\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2})"
+    },
+    {
+      "type": "ip",
+      "label": "Top IPs",
+      "dtype": "text",
+      "regex": ", client:\\s+(\\S+?)(?:,|$)",
+      "filterable": true
+    },
+    {
+      "type": "http_method",
+      "dtype": "text",
+      "regex": ", request:\\s+\"([A-Z]+) "
+    },
+    {
+      "type": "http_path",
+      "dtype": "text",
+      "regex": ", request:\\s+\"[A-Z]+ ([^\\s\"]+)",
+      "normalize": true,
+      "filterable": true
+    },
+    {
+      "type": "endpoint",
+      "label": "Top Endpoints",
+      "dtype": "compound",
+      "components": ["http_method", "http_path"],
+      "format": "{http_method} {http_path}"
+    },
+    {
+      "type": "message",
+      "label": "Top Errors",
+      "dtype": "text",
+      "regex": "\\d+#\\d+: (?:\\*\\d+ )?(.+?)(?:, client:|$)",
+      "error_levels": ["error", "warn"]
+    }
+  ],
+
+  "level_labels": {
+    "error": "ERR/CRIT",
+    "warn":  "WARN",
+    "info":  "INFO/NOTICE",
+    "debug": "DEBUG"
+  },
+
+  "level_rules": [
+    {"regex": "\\[(emerg|alert|crit|error)\\]", "level": "error", "flags": "i"},
+    {"regex": "\\[(warn)\\]",                    "level": "warn",  "flags": "i"},
+    {"regex": "\\[(notice|info)\\]",             "level": "info",  "flags": "i"},
+    {"regex": "\\[(debug)\\]",                   "level": "debug", "flags": "i"}
+  ],
+
+  "highlights": [
+    {"regex": "^\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2}", "attr": "lno"},
+    {"regex": "\\[(emerg|alert|crit|error)\\]",               "attr": "he",  "flags": "i"},
+    {"regex": "\\[(warn)\\]",                                  "attr": "hw",  "flags": "i"},
+    {"regex": "\\[(notice|info)\\]",                           "attr": "hi",  "flags": "i"},
+    {"regex": "\\[(debug)\\]",                                 "attr": "hd",  "flags": "i"},
+    {"regex": "\\d+#\\d+",                                     "attr": "lno"},
+    {"regex": "client: \\S+",                                  "attr": "hip"},
+    {"regex": "request: \"[^\"]+\"",                           "attr": "hi"},
+    {"regex": "upstream: \"[^\"]+\"",                          "attr": "hd"},
+    {"regex": "host: \"[^\"]+\"",                              "attr": "hd"}
+  ]
+}
