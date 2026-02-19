@@ -1,0 +1,51 @@
+{
+  "_comment": "Wine / Proton debug output — NNN.NNN:pid:tid:level:module:message",
+  "id": "wine",
+  "name": "Wine / Proton Debug Log",
+
+  "detect": {
+    "filename_keywords": ["wine", "proton", "steam"],
+    "content_regex": "^\\d+\\.\\d+:[0-9a-f]+:[0-9a-f]+:(fixme|err|warn|trace|info):"
+  },
+
+  "fields": [
+    {
+      "type": "timestamp",
+      "dtype": "timestamp",
+      "regex": "^(\\d+\\.\\d+)"
+    },
+    {
+      "type": "module",
+      "label": "Top Modules",
+      "dtype": "text",
+      "regex": ":(?:err|fixme|warn|info|trace):([^:]+):",
+      "flags": "i",
+      "filterable": true
+    },
+    {
+      "type": "message",
+      "label": "Top Errors",
+      "dtype": "text",
+      "regex": ":(err|fixme):[^:]+:(.+)$",
+      "flags": "i",
+      "group": 2,
+      "error_levels": ["error", "warn"]
+    }
+  ],
+
+  "level_rules": [
+    {"regex": ":(err):",        "level": "error", "flags": "i"},
+    {"regex": ":(fixme|warn):", "level": "warn",  "flags": "i"},
+    {"regex": ":info:",         "level": "info",  "flags": "i"},
+    {"regex": ":trace:",        "level": "debug", "flags": "i"}
+  ],
+
+  "highlights": [
+    {"regex": "^\\d+\\.\\d+",                     "attr": "lno"},
+    {"regex": ":(err):",                           "attr": "he",  "flags": "i"},
+    {"regex": ":(fixme|warn):",                    "attr": "hw",  "flags": "i"},
+    {"regex": ":info:",                            "attr": "hi",  "flags": "i"},
+    {"regex": ":trace:",                           "attr": "hd",  "flags": "i"},
+    {"regex": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b", "attr": "hip"}
+  ]
+}
