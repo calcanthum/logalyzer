@@ -457,9 +457,18 @@ class LogType:
         try:
             return re.compile('|'.join(parts), flags), grp_map
         except re.error:
-            parts2 = [f'(?P<_lvl{i}>{r.re.pattern})' for i, r in enumerate(self.level_rules)]
-            try:    return re.compile('|'.join(parts2), flags), grp_map
-            except: return None, {}
+            parts2 = [f'(?P<_lvl{i}>{r.re.pattern})' 
+                    for i, r in enumerate(self.level_rules)]
+            try:
+                return re.compile('|'.join(parts2), flags), grp_map
+            except re.error as exc:
+                print(
+                    f'[logalyzer warn] log type {self.id!r}: '
+                    f'could not build combined level regex, falling back to individual rules. '
+                    f'Reason: {exc}',
+                    file=sys.stderr,
+                )
+                return None, {}
 
     def score(self, path: str, lines: list) -> int:
         # Heuristic match score against a file path + content sample.
@@ -477,6 +486,10 @@ class LogType:
 
     def detect_level(self, line: str) -> str:
         if self._combined_re is None:
+            # Fallback: individual rule pass
+            for rule in self.level_rules:
+                if rule.re.search(line):
+                    return rule.level
             return 'normal'
         m = self._combined_re.search(line)
         if m:
@@ -519,14 +532,9 @@ def auto_detect(path: str, lines: list, log_types: list) -> LogType:
 
 
 # Log Data
-MAX_DISPLAY = 50_000
-
 
 class LineStore:
-    """
-    Enforces len(lines) == len(levels)
-    All mutations go through this class.
-    """
+    # All mutations go through here. Enforces len(lines) == len(levels)
 
     def __init__(self, log_type: 'LogType'):
         self._lines:  list = []
@@ -614,9 +622,11 @@ class LogData:
         self._file_pos = os.path.getsize(self.path)
 
     def load_async(self, progress_cb=None, done_cb=None) -> None:
-        """Load in a background thread. Calls progress_cb(byte_pos) periodically
+        """
+        Load in a background thread. Calls progress_cb(byte_pos) periodically
         and done_cb() when complete. Both callbacks are invoked from the worker
-        thread — callers must ensure thread-safety (e.g. via urwid pipe)."""
+        thread. Callers must ensure thread-safety (e.g. via urwid pipe).
+        """
         import threading
 
         def _worker():
@@ -797,7 +807,7 @@ class ClickScrollBar(urwid.ScrollBar):
         ow      = self._original_widget
         ow_size = self._original_widget_size or (sb_col, size[1])
 
-        # Not on the scrollbar strip — delegate to the ListBox (includes wheel)
+        # Not on the scrollbar strip, including wheel. Delegate to ListBox
         if not on_sb:
             return super().mouse_event(size, event, button, col, row, focus)
 
@@ -809,7 +819,7 @@ class ClickScrollBar(urwid.ScrollBar):
             for _ in range(3): ow.keypress(ow_size, 'down')
             return True
 
-        # Left-click anywhere on the strip — jump to proportional position
+        # Left-click to jump to position
         if button == 1 and event == 'mouse press':
             maxrow   = size[1]
             rows_max = ow.rows_max(ow_size, focus=True)
@@ -855,10 +865,10 @@ class LevelPill(urwid.WidgetWrap):
 
     def _redraw(self):
         if self.active and self.inverted:
-            mark = '\u2260'   # ≠  — "not this level"
+            mark = '\u2260'   # ≠ "not this level"
             attr = self._ia
         elif self.active:
-            mark = '\u25b6'   # ▶  — "show only this level"
+            mark = '\u25b6'   # ▶ "show only this level"
             attr = self._aa
         else:
             mark = ' '
@@ -1193,11 +1203,13 @@ class DockerStreamer:
             self._put('error', f'Cannot connect to Docker socket: {exc}')
             return
 
-        # Send HTTP request
+        """
+        Send HTTP request. HTTP/1.0 disables chunked transfer-encoding so 
+        Docker streams raw multiplexed frames with no chunk-size lines interleaved.
+        """
+
         path = (f'/containers/{self._id}/logs'
                 f'?follow=1&stdout=1&stderr=1&tail={self._tail}')
-        # HTTP/1.0: disables chunked transfer-encoding so Docker streams raw
-        # multiplexed frames with no chunk-size lines interleaved.
         req  = (f'GET {path} HTTP/1.0\r\n'
                 f'Host: localhost\r\n\r\n')
         try:
@@ -1515,7 +1527,7 @@ class LogApp:
         self._loading  = False
         self._load_pct = 0
 
-        # Docker streaming state — all mutated only on main-loop thread
+        # Docker streaming states mutated only on main-loop thread
         self._streamer:   DockerStreamer | None = None
         self._docker_q:   _queue.SimpleQueue    = _queue.SimpleQueue()
         self._docker_mode: bool                 = False   # True when viewing a container
@@ -1538,7 +1550,7 @@ class LogApp:
         self._refresh_title()
 
         if not self._loop_ref:
-            # Loop not running yet — apply synchronously (file hasn't loaded anyway)
+            # Loop not running yet, apply synchronously (file hasn't loaded anyway)
             self.data.store.set_log_type(lt)
             self.data.log_type = lt
             self._status.set_idle()
@@ -1637,14 +1649,14 @@ class LogApp:
             ('pack', _pad(urwid.AttrMap(self.cb_lno,   'fc', 'fc_f'))),
         ], dividechars=0, focus_column=1)
 
-        # Stats row — level pills + dynamic field filter pills on the same line
+        # Stats row: level pills + dynamic field filter pills on the same line
         self.w_total   = urwid.Text('')
         self.w_err_msg = urwid.Text('')
         self.pills     = {k: LevelPill(k) for k in ('error', 'warn', 'info', 'debug')}
         for p in self.pills.values():
             urwid.connect_signal(p, 'change', self._on_pill_change)
 
-        # Base contents — field pills are spliced in after w_err_msg by _rebuild_field_bar
+        # Base contents: field pills are spliced in after w_err_msg by _rebuild_field_bar
         self._stats_base = (
             [('pack', urwid.AttrMap(self.w_total, 'st'))]
             + [('pack', p) for p in self.pills.values()]
@@ -1665,7 +1677,7 @@ class LogApp:
         self._scrollbar = ClickScrollBar(self.listbox, side='right', width=1,
                                              thumb_char='\u2503', trough_char='\u2502')
 
-        # Body Columns: [log+scrollbar | stats pane] — pane added/removed by toggle_stats
+        # Body Columns: [log+scrollbar | stats pane]. Pane added/removed by toggle_stats
         self._body_cols = urwid.Columns(
             [self._scrollbar], dividechars=0)
         self._stats_pane_widget = None   # populated when pane is open
@@ -1857,7 +1869,7 @@ class LogApp:
                     if match:     continue   # inverted: skip lines that match
                 else:
                     if not match: continue   # normal: skip lines that don't match
-            # Field filters — each value is independently normal or inverted
+            # Field filters: each value is independently normal or inverted
             if ff_fields:
                 ok = True
                 for ft, (f, include_vals, exclude_vals) in ff_fields.items():
@@ -2295,8 +2307,10 @@ class LogApp:
         self._rebuild_field_bar()
 
     def _rebuild_field_bar(self) -> None:
-        """Splice field filter pills + pending preview into the stats Columns row.
-        Header height never changes, so the second click lands on the same line."""
+        """
+        Splice field filter pills + pending preview into the stats Columns row.
+        Header height never changes, so the second click lands on the same line.
+        """
         extra = []
         if self.filter_text and not self.filter_err:
             label = 're' if self.use_regex else '~'
@@ -2325,7 +2339,7 @@ class LogApp:
                 'hsel')
             extra.append(('pack', preview))
 
-        # Replace Columns contents in-place — no Pile row added/removed
+        # Replace Columns contents in-place: no Pile row added/removed
         self._stats_cols.contents = (
             [(w, self._stats_cols.options('pack')) for _, w in self._stats_base]
             + [(w, self._stats_cols.options('pack')) for _, w in extra]
