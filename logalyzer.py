@@ -149,15 +149,11 @@ _RE_PATH_ID    = re.compile(r'/(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27})(?=/|$)', re.I)
 
 
 def _normalize_path(path: str) -> str:
-    """Replace numeric IDs and UUIDs in URL paths with {id}."""
+    # Replace numeric IDs and UUIDs in URL paths with {id}.
     return _RE_PATH_ID.sub('/{id}', path)
 
 def _parse_ts(raw: str, strptime_fmt: str | None = None):
-    """Parse a pre-extracted timestamp string into a datetime or float.
-    
-    If strptime_fmt is provided, tries that first before falling back
-    to the heuristic _extract_ts patterns.
-    """
+    # Parse a pre-extracted timestamp string into a datetime or float.
     if strptime_fmt:
         try:
             return datetime.strptime(raw, strptime_fmt).replace(tzinfo=None)
@@ -166,7 +162,7 @@ def _parse_ts(raw: str, strptime_fmt: str | None = None):
     return _extract_ts(raw)
 
 def _extract_ts(line: str):
-    """Return a comparable timestamp value (datetime or float) or None."""
+    # Return a comparable timestamp value (datetime or float) or None.
     m = _TS_PATTERNS[0].search(line)
     if m:
         try: return datetime(int(m[1]),int(m[2]),int(m[3]),int(m[4]),int(m[5]),int(m[6]))
@@ -188,7 +184,7 @@ def _extract_ts(line: str):
 
 
 def _bucket_key(ts, span_secs: float) -> str:
-    """Convert a timestamp to a bucket label given total span in seconds."""
+    # Convert a timestamp to a bucket label given total span in seconds.
     if isinstance(ts, datetime):
         if span_secs <= 3600:          # ≤1 h  → per minute
             return ts.strftime('%H:%M')
@@ -204,7 +200,7 @@ def _bucket_key(ts, span_secs: float) -> str:
 
 def compute_stats(store: 'LineStore', indices: list,
                   log_type=None, n_top: int = 8):
-    """Return histogram and top-N panel data for the matched lines, driven by log_type field definitions."""
+    # Return histogram and top-N panel data for the matched lines, driven by log_type field definitions.
     fields       = getattr(log_type, 'stat_fields', [])
     field_by_type = {f.type: f for f in fields}
 
@@ -310,7 +306,7 @@ def compute_stats(store: 'LineStore', indices: list,
 
 
 def _hl(tokens: list, pattern: re.Pattern, attr: str, base_only: bool = True) -> list:
-    """Single syntax-highlight pass over a [(attr, text), ...] token list."""
+    # Single syntax-highlight pass over a [(attr, text), ...] token list.
     out = []
     for a, text in tokens:
         if base_only and a not in _BASE_ATTRS:
@@ -328,8 +324,7 @@ def _hl(tokens: list, pattern: re.Pattern, attr: str, base_only: bool = True) ->
 
 
 def _hl_span(tokens: list, start: int, end: int, attr: str) -> list:
-    """Overlay a highlight over character range [start, end) in a token list.
-    Used to highlight a pending click-selection on a specific line."""
+    # Overlay a highlight over character range [start, end) in a token list.
     out = []
     pos = 0
     for a, text in tokens:
@@ -366,7 +361,7 @@ class LevelRule:
 
 
 class StatField:
-    """A named semantic field used by compute_stats for extraction."""
+    # A named semantic field used by compute_stats for extraction.
     def __init__(self, d: dict):
         self.type         = d['type']
         self.label        = d.get('label', self.type.replace('_', ' ').title())
@@ -433,10 +428,12 @@ class LogType:
     def _build_combined_re(self):
         if not self.level_rules:
             return None, {}
-        # Build a flat alternation where word-boundary assertions sit OUTSIDE
-        # named groups so the engine can short-circuit without entering the group.
-        # (FOO|BAR)  ->  (?P<g>FOO|BAR)
-        # Other patterns wrapped as-is: (?P<g>pattern)
+        """
+        Build a flat alternation where word-boundary assertions sit OUTSIDE
+        named groups so the engine can short-circuit without entering the group.
+        (FOO|BAR)  ->  (?P<g>FOO|BAR)
+        Other patterns wrapped as-is: (?P<g>pattern)
+        """
         _strip_wb = re.compile(r'^((?:\\b)*)(.+?)((?:\\b)*)$', re.DOTALL)
         parts   = []
         grp_map = {}
@@ -465,7 +462,7 @@ class LogType:
             except: return None, {}
 
     def score(self, path: str, lines: list) -> int:
-        """Heuristic match score against a file path + content sample."""
+        # Heuristic match score against a file path + content sample.
         s    = 0
         name = os.path.basename(path).lower()
         for kw in self._kw:
@@ -536,13 +533,13 @@ class LineStore:
         self._levels: list = []
         self._lt           = log_type
 
-    # ── Size / access ────────────────────────────────────────────────────────
+    # Size / access
 
     def __len__(self) -> int:
         return len(self._lines)
 
     def __getitem__(self, idx: int):
-        """Return (line_text, level) for a given index."""
+        # Return (line_text, level) for a given index.
         return self._lines[idx], self._levels[idx]
 
     def get_line(self, idx: int) -> str:
@@ -551,41 +548,37 @@ class LineStore:
     def get_level(self, idx: int) -> str:
         return self._levels[idx]
 
-    # ── Mutation ─────────────────────────────────────────────────────────────
+    # Mutation
 
     def append(self, line: str) -> None:
-        """Append a line and automatically classify its level.
-
-        Centralising classification here means the two lists can never
-        fall out of sync — there is only one place to update both.
-        """
+        # Append a line and automatically classify its level.
         self._lines.append(line)
         self._levels.append(self._lt.detect_level(line))
 
     def bulk_load(self, lines: list, levels: list) -> None:
-        """Replace all content in one atomic operation (used by async loader)."""
+        # Replace all content in one atomic operation (used by async loader).
         assert len(lines) == len(levels), (
             f'bulk_load: lines/levels length mismatch ({len(lines)} vs {len(levels)})')
         self._lines  = lines
         self._levels = levels
 
     def replace_levels(self, new_levels: list) -> None:
-        """Replace level classifications after an async reclassification pass."""
+        # Replace level classifications after an async reclassification pass.
         assert len(new_levels) == len(self._lines), (
             f'replace_levels: length mismatch ({len(new_levels)} vs {len(self._lines)})')
         self._levels = new_levels
 
     def set_log_type(self, lt: 'LogType') -> None:
-        """Switch log type and reclassify all existing lines synchronously."""
+        # Switch log type and reclassify all existing lines synchronously.
         self._lt     = lt
         self._levels = [lt.detect_level(l) for l in self._lines]
 
     def trim_front(self, n: int) -> None:
-        """Remove the first *n* entries (used for the Docker rolling cap)."""
+        # Remove the first *n* entries (used for the Docker rolling cap).
         self._lines  = self._lines[n:]
         self._levels = self._levels[n:]
 
-    # ── Queries ──────────────────────────────────────────────────────────────
+    # Queries
 
     def level_counts(self, indices=None) -> dict:
         src = self._levels if indices is None else [self._levels[i] for i in indices]
@@ -608,7 +601,7 @@ class LogData:
         self._file_pos    = 0
 
     def set_type(self, lt: LogType) -> None:
-        """Switch log type and reclassify all stored lines (synchronous)."""
+        # Switch log type and reclassify all stored lines (synchronous).
         self.log_type = lt
         self.store.set_log_type(lt)
 
@@ -717,14 +710,14 @@ class LazyListWalker(urwid.ListWalker):
             self._modified()
 
     def set_pending(self, raw_line_idx: int, col_start: int, col_end: int) -> None:
-        """Highlight a span on one raw line as a pending click-selection."""
+        # Highlight a span on one raw line as a pending click-selection.
         self._pending_raw  = raw_line_idx
         self._pending_span = (col_start, col_end)
         self._evict_raw(raw_line_idx)
         self._modified()
 
     def clear_pending(self) -> None:
-        """Remove any pending selection highlight."""
+        # Remove any pending selection highlight.
         if self._pending_raw is None:
             return
         old = self._pending_raw
@@ -734,7 +727,7 @@ class LazyListWalker(urwid.ListWalker):
         self._modified()
 
     def _evict_raw(self, raw_line_idx: int) -> None:
-        """Evict all cache entries whose raw index matches raw_line_idx."""
+        # Evict all cache entries whose raw index matches raw_line_idx.
         evict = [p for p, ridx in
                  ((p, self._indices[p]) for p in list(self._cache))
                  if ridx == raw_line_idx]
@@ -831,7 +824,7 @@ class ClickScrollBar(urwid.ScrollBar):
 
 # Widgets
 class FilterEdit(urwid.Edit):
-    """Edit that lets Enter/Esc bubble up to unhandled_input."""
+    # Edit that lets Enter/Esc bubble up to unhandled_input.
     def keypress(self, size, key):
         if key in ('enter', 'esc'):
             return key
@@ -839,18 +832,6 @@ class FilterEdit(urwid.Edit):
 
 
 class LevelPill(urwid.WidgetWrap):
-    """
-    Selectable ERR / WARN / INFO / DBG badge in the stats bar.
-
-    Left-click / Enter / Space → cycle through: off → whitelist (show only) → off
-    Right-click                → cycle through: off → blacklist (hide)      → off
-
-    Entering whitelist mode always clears blacklist mode and vice versa, so the
-    three visible states are:
-      • inactive  — no filter applied for this level
-      • active    — inverted=False  →  show ONLY this level (filled background)
-      • inverted  — inverted=True   →  HIDE this level   (coloured text, dark bg, ≠ prefix)
-    """
     signals = ['change']
 
     # (label, normal_attr, whitelist_attr, blacklist_attr)
@@ -1010,7 +991,7 @@ def _bar(count: int, max_count: int, width: int = _HBAR_W, chars: str = '█░'
 
 
 def build_stats_pane(stats: dict, title_suffix: str = '') -> urwid.Widget:
-    """Build a urwid pile from whatever panels compute_stats returns."""
+    # Build a urwid pile from whatever panels compute_stats returns.
     items = []
     first = True
 
@@ -1119,7 +1100,7 @@ def make_selector_overlay(behind: urwid.Widget,
 # Docker Integration
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
-    """HTTPConnection that dials a Unix domain socket instead of TCP."""
+    # HTTPConnection that dials a Unix domain socket.
     def __init__(self, socket_path: str):
         super().__init__('localhost')
         self._socket_path = socket_path
@@ -1185,7 +1166,7 @@ class DockerStreamer:
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal the stream thread to exit and unblock any pending recv()."""
+        # Signal the stream thread to exit and unblock any pending recv().
         self._stop.set()
         s = self._sock
         if s is not None:
@@ -1242,16 +1223,18 @@ class DockerStreamer:
         # Body starts after the blank line; buf may contain some of it
         leftover = buf[buf.index(b'\r\n\r\n') + 4:]
 
-        # Docker multiplexed-stream frame loop
-        # Each frame: [stream_type:1][pad:3][length:4][payload:length]
-        # stream_type: 1=stdout  2=stderr
-        # Containers with a TTY skip this framing — we detect and handle below.
-        # The first byte of a framed stream is always 1 or 2; a TTY stream
-        # starts directly with printable ASCII, so we sniff on the first byte.
+        """
+        Docker multiplexed-stream frame loop
+        Each frame: [stream_type:1][pad:3][length:4][payload:length]
+        stream_type: 1=stdout  2=stderr
+        Containers with a TTY skip this framing.
+        The first byte of a framed stream is always 1 or 2; a TTY stream
+        starts directly with printable ASCII, so we sniff on the first byte.
+        """
         tty_mode = False
 
         def _fill(need: int) -> bool:
-            """Grow `leftover` to at least `need` bytes. Returns False on EOF/stop."""
+            # Grow `leftover` to at least `need` bytes. Returns False on EOF/stop.
             nonlocal leftover
             while len(leftover) < need:
                 if self._stop.is_set():
@@ -1843,9 +1826,12 @@ class LogApp:
             self.filter_re  = None
             self.filter_err = False
 
-        # Pre-build field lookup for field_filters so we're not searching per line.
-        # Inversion is tracked per (field_type, value) pair, so split each field's
-        # values into an include-set (must match one) and an exclude-set (must not match).
+        """
+        Pre-build field lookup for field_filters so we're not searching per line.
+        Inversion is tracked per (field_type, value) pair, so split each field's
+        values into an include-set (must match one) and an exclude-set (must not match).
+        """
+
         ff_fields = {}
         if ff:
             for ft, values in ff.items():
@@ -1998,7 +1984,7 @@ class LogApp:
             self.listbox.focus_position = len(self.walker) - 1
 
     def export_stats(self) -> None:
-        """Write stats for the current view to a timestamped .txt file in cwd."""
+        # Write stats for the current view to a timestamped .txt file in cwd.
         stats = compute_stats(self.data.store, self.matched, log_type=self.log_type)
         text = export_stats_to_text(
             stats,
@@ -2081,7 +2067,7 @@ class LogApp:
 
     def _on_docker_fetch_pipe(self, fetch_q: _queue.SimpleQueue,
                                push_overlay_cb, pop_overlay_cb) -> None:
-        """Main-loop-thread callback: drain the fetch queue and refresh overlay."""
+        # Main-loop-thread callback: drain the fetch queue and refresh overlay.
         try:
             kind, payload = fetch_q.get_nowait()
         except _queue.Empty:
@@ -2102,7 +2088,7 @@ class LogApp:
         push_overlay_cb(overlay)
 
     def _on_docker_container_selected(self, container: dict) -> None:
-        """Stop any existing streamer, reset LogData, and start streaming the selected container."""
+        # Stop any existing streamer, reset LogData, and start streaming the selected container.
         if self._streamer is not None:
             self._streamer.stop()
             self._streamer = None
@@ -2147,7 +2133,7 @@ class LogApp:
         streamer.start()
 
     def attach_docker_pipe(self, write_fd: int) -> None:
-        """Called once from main() so the app knows its docker wakeup fd."""
+        # Called once from main() so the app knows its docker wakeup fd.
         self._docker_write_fd = write_fd
 
     def on_docker_pipe(self, _data: bytes) -> None:
@@ -2196,7 +2182,7 @@ class LogApp:
         self._ingest_docker_lines(batch)
 
     def _ingest_docker_lines(self, new_lines: list) -> None:
-        """Append lines to LogData, enforce DOCKER_MAX_LINES cap, and update the view."""
+        # Append lines to LogData, enforce DOCKER_MAX_LINES cap, and update the view.
         for line in new_lines:
             self.data.store.append(line)   # classifies and appends atomically
 
@@ -2232,7 +2218,7 @@ class LogApp:
 
     # Click-to-filter
     def _on_line_click(self, walker_pos: int, col: int) -> bool:
-        """Called by ClickableListBox on left-click. Returns True if consumed."""
+        # Called by ClickableListBox on left-click. Returns True if consumed.
         if walker_pos >= len(self.matched):
             return False
         raw_idx = self.matched[walker_pos]
@@ -2265,7 +2251,7 @@ class LogApp:
         return False
 
     def _hit_test(self, line: str, raw_col: int) -> dict | None:
-        """Return the first filterable field whose captured span contains raw_col."""
+        # Return the first filterable field whose captured span contains raw_col.
         for f in self.log_type.stat_fields:
             if not f.filterable:
                 continue
@@ -2346,7 +2332,7 @@ class LogApp:
         )
 
     def _on_field_pill_invert(self, pill: FieldPill) -> None:
-        """Right-click on a pill: toggle inclusion ↔ exclusion for its filter value."""
+        # Right-click on a pill: toggle inclusion ↔ exclusion for its filter value.
         if pill.field_type == '_text_filter':
             self.text_filter_inverted = not self.text_filter_inverted
         else:
