@@ -14,7 +14,7 @@ pip install urwid
 ## Installation
 
 ```
-git clone https://github.com/example/logalyzer.git
+git clone https://github.com/calcanthum/logalyzer.git
 ```
 
 ## Usage
