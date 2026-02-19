@@ -2416,6 +2416,12 @@ def main():
                      help='Connect to Docker and select a container')
     args = ap.parse_args()
 
+    active_palette = (
+        [(name, '', '') for name, *_ in PALETTE]
+        if 'NO_COLOR' in os.environ
+        else PALETTE
+    )
+
     if not docker_available() and args.docker:
         sys.exit('Error: Docker socket not found at /var/run/docker.sock')
 
@@ -2511,7 +2517,7 @@ def main():
 
     loop = urwid.MainLoop(
         initial_widget,
-        palette         = PALETTE,
+        palette         = active_palette,
         unhandled_input = handle_input,
         handle_mouse    = True,
     )
