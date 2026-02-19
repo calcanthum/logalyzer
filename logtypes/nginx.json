@@ -1,0 +1,93 @@
+{
+  "_comment": "Nginx access log",
+  "_format":  "IP - USER [DATE] \"METHOD PATH PROTO\" STATUS SIZE [\"REFERER\" \"UA\"]",
+
+  "id": "nginx",
+  "name": "Nginx Access Log",
+
+  "detect": {
+    "filename_keywords": ["nginx", "access"],
+    "content_regex": "^\\S+ - \\S+ \\[[^\\]]+\\] \""
+  },
+
+  "fields": [
+    {
+      "type": "timestamp",
+      "dtype": "timestamp",
+      "regex": "\\[([^\\]]+)\\]"
+    },
+    {
+      "type": "ip",
+      "label": "Top IPs",
+      "dtype": "text",
+      "regex": "^(\\S+)",
+      "filterable": true
+    },
+    {
+      "type": "http_status",
+      "label": "Status Codes",
+      "dtype": "numeric",
+      "regex": "\" (\\d{3}) ",
+      "buckets": [
+        {"range": [100, 199], "label": "1xx"},
+        {"range": [200, 299], "label": "2xx"},
+        {"range": [300, 399], "label": "3xx"},
+        {"range": [400, 499], "label": "4xx"},
+        {"range": [500, 599], "label": "5xx"}
+      ],
+      "filterable": true
+    },
+    {
+      "type": "http_method",
+      "dtype": "text",
+      "regex": "\"([A-Z]+) ",
+      "filterable": true
+    },
+    {
+      "type": "http_path",
+      "dtype": "text",
+      "regex": "\"[A-Z]+ (\\S+)",
+      "normalize": true,
+      "filterable": true
+    },
+    {
+      "type": "endpoint",
+      "label": "Endpoints",
+      "dtype": "compound",
+      "components": ["http_method", "http_path"],
+      "format": "{http_method} {http_path}"
+    },
+    {
+      "type": "user_agent",
+      "dtype": "text",
+      "regex": "\"[^\"]*\"\\s+\"([^\"]+)\"\\s*$",
+      "filterable": true
+    }
+  ],
+
+  "level_labels": {
+    "error": "5xx",
+    "warn":  "4xx/3xx",
+    "info":  "2xx",
+    "debug": "1xx"
+  },
+
+  "level_rules": [
+    {"regex": "(?<=\"\\s)[5]\\d{2}(?=\\s)", "level": "error"},
+    {"regex": "(?<=\"\\s)[4]\\d{2}(?=\\s)", "level": "warn"},
+    {"regex": "(?<=\"\\s)[3]\\d{2}(?=\\s)", "level": "warn"},
+    {"regex": "(?<=\"\\s)[2]\\d{2}(?=\\s)", "level": "info"},
+    {"regex": "(?<=\"\\s)[1]\\d{2}(?=\\s)", "level": "info"}
+  ],
+
+  "highlights": [
+    {"regex": "^\\S+",                        "attr": "hip"},
+    {"regex": "\\[[^\\]]+\\]",                "attr": "lno"},
+    {"regex": "(?<=\"\\s)[5]\\d{2}(?=\\s)",   "attr": "h4xx"},
+    {"regex": "(?<=\"\\s)[4]\\d{2}(?=\\s)",   "attr": "h4xx"},
+    {"regex": "(?<=\"\\s)[3]\\d{2}(?=\\s)",   "attr": "h3xx"},
+    {"regex": "(?<=\"\\s)[2]\\d{2}(?=\\s)",   "attr": "h2ok"},
+    {"regex": "(?<=\"\\s)[1]\\d{2}(?=\\s)",   "attr": "hi"},
+    {"regex": "\"[A-Z]+ [^\"]+\"",            "attr": "hi"}
+  ]
+}
