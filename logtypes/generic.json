@@ -1,0 +1,43 @@
+{
+  "_comment": "Generic application log: keyword-based level detection",
+  "id": "generic",
+  "name": "Generic Application Log",
+
+  "detect": {
+    "filename_keywords": ["app", "application", "service", "server"],
+    "content_regex": ""
+  },
+
+  "fields": [
+    {
+      "type": "ip",
+      "regex": "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b",
+      "multi": true
+    },
+    {
+      "type": "message",
+      "regex": "\\b(?:CRITICAL|FATAL|ERROR|ERR|SEVERE)\\b[:\\s]+(.+)$",
+      "flags": "i",
+      "error_levels": ["error"]
+    }
+  ],
+
+  "level_rules": [
+    {"regex": "\\b(CRITICAL|FATAL|ERROR|ERR|SEVERE)\\b", "level": "error", "flags": "i"},
+    {"regex": "\\b(WARNING|WARN)\\b",                     "level": "warn",  "flags": "i"},
+    {"regex": "\\b(NOTICE|INFO)\\b",                      "level": "info",  "flags": "i"},
+    {"regex": "\\b(DEBUG|TRACE|VERBOSE)\\b",              "level": "debug", "flags": "i"}
+  ],
+
+  "highlights": [
+    {"regex": "\\b(CRITICAL|FATAL|ERROR|ERR|SEVERE)\\b",  "attr": "he",  "flags": "i"},
+    {"regex": "\\b(WARNING|WARN)\\b",                      "attr": "hw",  "flags": "i"},
+    {"regex": "\\b(NOTICE|INFO)\\b",                       "attr": "hi",  "flags": "i"},
+    {"regex": "\\b(DEBUG|TRACE|VERBOSE)\\b",               "attr": "hd",  "flags": "i"},
+    {"regex": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",         "attr": "hip"},
+    {"regex": "(?<!\\d)[5]\\d{2}(?!\\d)",                  "attr": "h4xx"},
+    {"regex": "(?<!\\d)[4]\\d{2}(?!\\d)",                  "attr": "h4xx"},
+    {"regex": "(?<!\\d)[3]\\d{2}(?!\\d)",                  "attr": "h3xx"},
+    {"regex": "(?<!\\d)[2]\\d{2}(?!\\d)",                  "attr": "h2ok"}
+  ]
+}
