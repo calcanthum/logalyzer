@@ -1994,7 +1994,7 @@ class LogApp:
         self.walker.clear_pending()
         self._rebuild_field_bar()
         self.w_edit.set_edit_text('')       # triggers _on_edit_change → _apply_filter
-        self.frame.set_focus('body')
+        self.frame.focus_position = 'body'
 
     def go_top(self):
         if self.walker:
@@ -2493,7 +2493,7 @@ def main():
                 if key == 'esc':
                     app.clear_filter()
                 else:
-                    app.frame.set_focus('body')
+                    app.frame.focus_position = 'body'
             elif key == 'esc':
                 app.clear_filter()
         elif key in ('t', 'T'):
