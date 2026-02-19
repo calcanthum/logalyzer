@@ -798,38 +798,29 @@ class LazyListWalker(urwid.ListWalker):
 
 
 # ScrollBar
-class ClickScrollBar(urwid.ScrollBar):
-
+class WheelScrollBar(urwid.ScrollBar):
     def mouse_event(self, size, event, button, col, row, focus):
         maxcol  = size[0]
-        sb_col  = maxcol - self.scrollbar_width
-        on_sb   = col >= sb_col
+        on_sb   = col >= maxcol - self.scrollbar_width
         ow      = self._original_widget
-        ow_size = self._original_widget_size or (sb_col, size[1])
+        ow_size = self._original_widget_size or (maxcol - self.scrollbar_width, size[1])
 
-        # Not on the scrollbar strip, including wheel. Delegate to ListBox
-        if not on_sb:
-            return super().mouse_event(size, event, button, col, row, focus)
-
-        # Scroll wheel on the scrollbar strip
-        if button == 4:
+        if on_sb and button == 4:
             for _ in range(3): ow.keypress(ow_size, 'up')
             return True
-        if button == 5:
+        if on_sb and button == 5:
             for _ in range(3): ow.keypress(ow_size, 'down')
             return True
-
-        # Left-click to jump to position
-        if button == 1 and event == 'mouse press':
+        if on_sb and event == 'mouse press' and button == 1:
             maxrow   = size[1]
             rows_max = ow.rows_max(ow_size, focus=True)
             if rows_max > maxrow:
                 posmax = rows_max - maxrow
                 target = round(max(0.0, min(1.0, row / max(1, maxrow - 1))) * posmax)
-                ow.focus_position = max(0, min(len(ow.body) - 1, target))
+                ow.set_scrollpos(target)
             return True
 
-        return False
+        return super().mouse_event(size, event, button, col, row, focus)
 
 
 # Widgets
@@ -977,6 +968,11 @@ class ClickableListBox(urwid.ListBox):
     def __init__(self, body, click_cb=None):
         super().__init__(body)
         self._click_cb = click_cb
+
+    def set_scrollpos(self, position: int) -> None:
+        n = len(self.body)
+        if n > 0:
+            self.focus_position = max(0, min(n - 1, position))
 
     def mouse_event(self, size, event, button, col, row, focus):
         if event == 'mouse press' and button == 1 and self._click_cb:
@@ -1683,8 +1679,11 @@ class LogApp:
         self.walker  = LazyListWalker()
         self.listbox = ClickableListBox(self.walker,
                                         click_cb=self._on_line_click)
-        self._scrollbar = ClickScrollBar(self.listbox, side='right', width=1,
-                                             thumb_char='\u2503', trough_char='\u2502')
+        self._scrollbar = WheelScrollBar(
+            self.listbox, side='right', width=1,
+            thumb_char='\u2503',
+            trough_char='\u2502',
+)
 
         # Body Columns: [log+scrollbar | stats pane]. Pane added/removed by toggle_stats
         self._body_cols = urwid.Columns(
