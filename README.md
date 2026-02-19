@@ -53,11 +53,11 @@ Supported types out of the box:
 
 | Action | Result |
 |--------|--------|
-| Scroll wheel | Navigate the log |
+| Scroll wheel / Click scrollbar | Navigate the log |
 | Click level pill | Toggle level filter |
-| Click a field value | Begin field filter (confirm with second click) |
-| Click `×` on a field pill | Remove that filter |
-| Click / drag scrollbar | Navigate the log |
+| Click a field value | Select field filter (confirm with second click) |
+| Left click on a field pill | Remove that filter |
+| Right click on a field pill | Invert that filter |
 
 ## Stats Export
 
