@@ -19,8 +19,14 @@ git clone https://github.com/calcanthum/logalyzer.git
 
 ## Usage
 
+Log file:
 ```
-python logalyzer.py <logfile>
+python logalyzer.py -f <logfile>
+```
+
+Docker logs:
+```
+python logalyzer.py -d
 ```
 
 ## Log Types
