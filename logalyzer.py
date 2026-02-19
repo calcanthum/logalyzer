@@ -19,7 +19,8 @@ Keys:
 
 Mouse:    scroll wheel navigates the log; click level pills to filter
           click a field value in a log line to start a field filter (two-click confirm)
-          click the × on a field pill to remove that filter
+          left click on a field pill to remove that filter
+          right click on a field pill to invert that filter
 
 Log type definitions live in ./logtypes/*.json — copy and edit to add custom types.
 """
