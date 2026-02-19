@@ -18,14 +18,14 @@
     },
     {
       "type": "ip",
-      "label": "Top IPs",
+      "label": "IP",
       "dtype": "text",
       "regex": "^(\\S+)",
       "filterable": true
     },
     {
       "type": "http_status",
-      "label": "Status Codes",
+      "label": "Status Code",
       "dtype": "numeric",
       "regex": "\" (\\d{3}) ",
       "buckets": [
@@ -39,12 +39,14 @@
     },
     {
       "type": "http_method",
+      "label": "HTTP Method",
       "dtype": "text",
       "regex": "\"([A-Z]+) ",
       "filterable": true
     },
     {
       "type": "http_path",
+      "label": "HTTP Path",
       "dtype": "text",
       "regex": "\"[A-Z]+ (\\S+)",
       "normalize": true,
@@ -52,7 +54,7 @@
     },
     {
       "type": "endpoint",
-      "label": "Endpoints",
+      "label": "Endpoint",
       "dtype": "compound",
       "components": ["http_method", "http_path"],
       "format": "{http_method} {http_path}"

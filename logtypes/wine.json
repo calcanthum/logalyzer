@@ -1,7 +1,7 @@
 {
-  "_comment": "Wine / Proton debug output — NNN.NNN:pid:tid:level:module:message",
+  "_comment": "Wine debug output — NNN.NNN:pid:tid:level:module:message",
   "id": "wine",
-  "name": "Wine / Proton Debug Log",
+  "name": "Wine Debug Log",
 
   "detect": {
     "filename_keywords": ["wine", "proton", "steam"],
@@ -16,7 +16,6 @@
     },
     {
       "type": "module",
-      "label": "Top Modules",
       "dtype": "text",
       "regex": ":(?:err|fixme|warn|info|trace):([^:]+):",
       "flags": "i",
@@ -24,7 +23,6 @@
     },
     {
       "type": "message",
-      "label": "Top Errors",
       "dtype": "text",
       "regex": ":(err|fixme):[^:]+:(.+)$",
       "flags": "i",

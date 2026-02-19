@@ -16,18 +16,20 @@
     },
     {
       "type": "ip",
-      "label": "Top IPs",
+      "label": "IP",
       "dtype": "text",
       "regex": ", client:\\s+(\\S+?)(?:,|$)",
       "filterable": true
     },
     {
       "type": "http_method",
+      "label": "HTTP Method",
       "dtype": "text",
       "regex": ", request:\\s+\"([A-Z]+) "
     },
     {
       "type": "http_path",
+      "label": "HTTP Path",
       "dtype": "text",
       "regex": ", request:\\s+\"[A-Z]+ ([^\\s\"]+)",
       "normalize": true,
@@ -35,14 +37,12 @@
     },
     {
       "type": "endpoint",
-      "label": "Top Endpoints",
       "dtype": "compound",
       "components": ["http_method", "http_path"],
       "format": "{http_method} {http_path}"
     },
     {
       "type": "message",
-      "label": "Top Errors",
       "dtype": "text",
       "regex": "\\d+#\\d+: (?:\\*\\d+ )?(.+?)(?:, client:|$)",
       "error_levels": ["error", "warn"]
