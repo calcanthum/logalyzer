@@ -13,7 +13,9 @@ pip install urwid
 
 ## Installation
 
-Place `logalyzer.py` and the `logtypes/` directory in the same folder.
+```
+git clone https://github.com/example/logalyzer.git
+```
 
 ## Usage
 
