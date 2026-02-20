@@ -25,7 +25,7 @@
     },
     {
       "type": "http_status",
-      "label": "Status Code",
+      "label": "HTTP Status",
       "dtype": "numeric",
       "regex": "\" (\\d{3}) ",
       "buckets": [
@@ -54,7 +54,6 @@
     },
     {
       "type": "endpoint",
-      "label": "Endpoint",
       "dtype": "compound",
       "components": ["http_method", "http_path"],
       "format": "{http_method} {http_path}"

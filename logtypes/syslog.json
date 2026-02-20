@@ -19,7 +19,6 @@
     {
       "_comment": "Hostname is the second whitespace-delimited token after the timestamp",
       "type": "hostname",
-      "label": "Top Hosts",
       "dtype": "text",
       "regex": "^\\S+[ \\t]+(\\S+)[ \\t]+\\S",
       "filterable": true
@@ -27,14 +26,12 @@
     {
       "_comment": "Service/process name — the TAG in RFC 3164 terms, with optional [pid] stripped. Anchored to the token immediately followed by [ or : to avoid false matches in message body.",
       "type": "service",
-      "label": "Top Services",
       "dtype": "text",
       "regex": "^\\S+[ \\t]+\\S+[ \\t]+([a-zA-Z][\\w./:-]{0,47})(?:\\[\\d+\\])?:",
       "filterable": true
     },
     {
       "type": "ip",
-      "label": "Top IPs",
       "dtype": "text",
       "regex": "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b",
       "multi": true,
@@ -43,7 +40,6 @@
     {
       "_comment": "Error-level message text, only collected for error-classified lines",
       "type": "message",
-      "label": "Top Errors",
       "dtype": "text",
       "regex": "\\w+(?:\\[\\d+\\])?:[ \\t]+(.+)$",
       "error_levels": ["error"]
