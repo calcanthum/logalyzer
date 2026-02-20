@@ -28,6 +28,12 @@ FIFO logs:
 ```
 python logalyzer.py -F <FIFO>
 ```
+### Usage Examples
+
+Nginx:
+```
+python logalyzer.py -f /var/log/nginx/access.log
+```
 
 Journald can write to a FIFO for logalyzer:
 ```
