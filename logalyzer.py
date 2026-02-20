@@ -1174,7 +1174,7 @@ class LogApp:
         self._overlay_rect = (0, 0, 0, 0)
 
         self._pill_regions = []; self._field_pill_regions = []; self._cb_regions = []
-
+        self.stats_scroll = 0; self.stats_focused = False; self._stats_pane_x = 0
         self._load_q = _queue.SimpleQueue(); self._stats_q = _queue.SimpleQueue()
         self._settype_q = _queue.SimpleQueue(); self._docker_fetch_q = _queue.SimpleQueue()
         self._stats_data = None
@@ -1228,7 +1228,7 @@ class LogApp:
     # Stats pane
 
     def _open_stats(self):
-        self.show_stats = True; self._stats_data = None
+        self.show_stats = True; self._stats_data = None; self.stats_scroll = 0
         self._status.set_spinner('Computing stats')
         s, m, lt = self.data.store, list(self.matched), self.log_type
         def _w(): self._stats_q.put(compute_stats(s, m, log_type=lt))
@@ -1421,7 +1421,7 @@ class LogApp:
 
     def toggle_stats(self):
         if self.show_stats:
-            self.show_stats = False; self._stats_data = None
+            self.show_stats = False; self._stats_data = None; self.stats_focused = False
         else:
             self._open_stats()
         self.dirty = True
@@ -1490,7 +1490,8 @@ class LogApp:
         if ch in (ord('q'), ord('Q')): self.running = False
         elif ch == ord('/'): self.focus = 'filter'
         elif ch == 27:
-            if self._pending: self._cancel_pending()
+            if self.stats_focused: self.stats_focused = False
+            elif self._pending: self._cancel_pending()
             else: self.clear_filter()
         elif ch in (ord('t'), ord('T')): self.toggle_tail()
         elif ch in (ord('s'), ord('S')): self.toggle_stats()
@@ -1499,15 +1500,28 @@ class LogApp:
         elif ch in (ord('e'), ord('E')): self.export_stats()
         elif ch in (ord('d'), ord('D')):
             if docker_available(): self.open_docker_selector()
-        elif ch == curses.KEY_UP: self.viewport_off = max(0, self.viewport_off - 1)
+        elif ch == curses.KEY_UP:
+            if self.stats_focused:
+                self.stats_scroll = max(0, self.stats_scroll - 1)
+            else:
+                self.viewport_off = max(0, self.viewport_off - 1)
         elif ch == curses.KEY_DOWN:
-            self.viewport_off = min(max(0, len(self.matched) - self.body_height),
-                                    self.viewport_off + 1)
+            if self.stats_focused:
+                self.stats_scroll += 1  # clamped during draw
+            else:
+                self.viewport_off = min(max(0, len(self.matched) - self.body_height),
+                                        self.viewport_off + 1)
         elif ch == curses.KEY_PPAGE:
-            self.viewport_off = max(0, self.viewport_off - self.body_height)
+            if self.stats_focused:
+                self.stats_scroll = max(0, self.stats_scroll - self.body_height)
+            else:
+                self.viewport_off = max(0, self.viewport_off - self.body_height)
         elif ch == curses.KEY_NPAGE:
-            self.viewport_off = min(max(0, len(self.matched) - self.body_height),
-                                    self.viewport_off + self.body_height)
+            if self.stats_focused:
+                self.stats_scroll += self.body_height  # clamped during draw
+            else:
+                self.viewport_off = min(max(0, len(self.matched) - self.body_height),
+                                        self.viewport_off + self.body_height)
         self.dirty = True
 
     def on_mouse(self, ev):
@@ -1515,12 +1529,15 @@ class LogApp:
         except (TypeError, ValueError): return
 
         b5 = getattr(curses, 'BUTTON5_PRESSED', 0x00200000)
+        in_stats = self.show_stats and self._stats_pane_x > 0 and mx >= self._stats_pane_x
         if bstate & curses.BUTTON4_PRESSED:
             if self.overlay: self.overlay_scroll = max(0, self.overlay_scroll - 3)
+            elif in_stats: self.stats_scroll = max(0, self.stats_scroll - 3)
             else: self.viewport_off = max(0, self.viewport_off - 3)
             self.dirty = True; return
         if bstate & b5:
             if self.overlay: self.overlay_scroll += 3
+            elif in_stats: self.stats_scroll += 3  # clamped during draw
             elif self.matched:
                 self.viewport_off = min(max(0, len(self.matched) - self.body_height),
                                         self.viewport_off + 3)
@@ -1535,7 +1552,11 @@ class LogApp:
         if my == 1 and left: self._handle_filter_click(mx)
         elif my == 2: self._handle_pill_click(mx, left, right)
         elif self.HDR <= my < self.HDR + self.body_height and left:
-            self._handle_line_click(my, mx)
+            if in_stats:
+                self.stats_focused = True  # click on stats panel focuses it
+            else:
+                self.stats_focused = False  # click on log unfocuses stats
+                self._handle_line_click(my, mx)
         self.dirty = True
 
     def _handle_filter_click(self, mx):
@@ -1646,10 +1667,13 @@ class LogApp:
         bt = self.HDR
         if self.show_stats and mx > STATS_WIDTH + 10:
             lw = mx - STATS_WIDTH - 1
+            self._stats_pane_x = lw + 1
             self._draw_body(stdscr, bt, self.body_height, 0, lw)
             self._draw_sb(stdscr, lw, bt, self.body_height)
-            self._draw_statspane(stdscr, bt, lw + 1, STATS_WIDTH, self.body_height)
+            self._draw_statspane(stdscr, bt, lw + 1, STATS_WIDTH, self.body_height,
+                                 self.stats_scroll)
         else:
+            self._stats_pane_x = 0
             lw = mx - 1
             self._draw_body(stdscr, bt, self.body_height, 0, lw)
             self._draw_sb(stdscr, mx - 1, bt, self.body_height)
@@ -1746,16 +1770,35 @@ class LogApp:
             else:
                 _safe(s, ys + r, x, '\u2502', 1, _attr('scrollbar_trough'))
 
-    def _draw_statspane(self, s, ys, xs, w, h):
-        _safe(s, ys, xs, '\u250c' + '\u2500' * (w - 2) + '\u2510', w, _attr('sp_border'))
-        title = ' Stats '
+    def _draw_statspane(self, s, ys, xs, w, h, scroll: int = 0):
+        visible = max(0, h - 2)  # interior rows (excluding top/bottom border)
+        rows = self._build_stats_rows(w)
+        max_scroll = max(0, len(rows) - visible)
+        scroll = min(scroll, max_scroll)
+        # Write the clamped value back so key-scroll doesn't drift past the end
+        self.stats_scroll = scroll
+
+        # Top border — highlight it when stats panel has keyboard focus
+        border_attr = _attr('sp_hdr') if self.stats_focused else _attr('sp_border')
+        _safe(s, ys, xs, '\u250c' + '\u2500' * (w - 2) + '\u2510', w, border_attr)
+        title = ' Stats \u25bc' if self.stats_focused else ' Stats '
         tx = xs + max(1, (w - len(title)) // 2)
         _safe(s, ys, tx, title, len(title), _attr('sp_hdr'))
-        rows = self._build_stats_rows(w)
+
+        # Scrollbar thumb position along the right border
+        if max_scroll > 0:
+            thumb_row = round(scroll / max_scroll * (visible - 1))
+        else:
+            thumb_row = -1
+
         for i in range(1, h - 1):
-            _safe(s, ys + i, xs, '\u2502', 1, _attr('sp_border'))
-            _safe(s, ys + i, xs + w - 1, '\u2502', 1, _attr('sp_border'))
-            ri = i - 1
+            ri = (i - 1) + scroll  # index into rows[] after applying scroll offset
+            _safe(s, ys + i, xs, '\u2502', 1, border_attr)
+            # Right border doubles as a mini scrollbar when content overflows
+            sb_char = '\u2503' if (i - 1) == thumb_row and max_scroll > 0 else '\u2502'
+            sb_attr = _attr('scrollbar_thumb') if (i - 1) == thumb_row and max_scroll > 0 \
+                      else border_attr
+            _safe(s, ys + i, xs + w - 1, sb_char, 1, sb_attr)
             if ri < len(rows):
                 txt, an = rows[ri]
                 _safe(s, ys + i, xs + 1, txt[:w-2].ljust(w - 2), w - 2, _attr(an))
@@ -1763,7 +1806,7 @@ class LogApp:
                 _safe(s, ys + i, xs + 1, ' ' * (w - 2), w - 2, _attr('sp_body'))
         if h > 1:
             _safe(s, ys + h - 1, xs, '\u2514' + '\u2500' * (w - 2) + '\u2518',
-                  w, _attr('sp_border'))
+                  w, border_attr)
 
     def _build_stats_rows(self, w):
         stats = self._stats_data
@@ -1814,8 +1857,13 @@ class LogApp:
                ('fk','t'),('footer',':tail  '),('fk','s'),('footer',':stats  '),
                ('fk','e'),('footer',':export  '),('fk','d'),('footer',':docker  '),
                ('fk','Esc'),('footer',':clear  '),('fk','g'),('footer','/'),
-               ('fk','G'),('footer',':top/btm  '),
-               ('footer', f'  R-click=invert  {m:,}/{n:,} lines{lf}{ff}')]
+               ('fk','G'),('footer',':top/btm  ')]
+        if self.show_stats:
+            if self.stats_focused:
+                tok += [('fk','Esc'),('footer',':unfocus stats  ')]
+            else:
+                tok += [('footer','  click stats to scroll it  ')]
+        tok.append(('footer', f'  R-click=invert  {m:,}/{n:,} lines{lf}{ff}'))
         if self._export_status: tok.append(('footer', f'  {self._export_status}'))
         draw_token_row(s, row, 0, mx, tok, 'footer')
 
