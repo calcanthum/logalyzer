@@ -557,7 +557,7 @@ def auto_detect(path: str, lines: list, log_types: list) -> LogType:
 # Data layer
 
 class LineStore:
-    # All should mutations go through here. Enforces len(lines) == len(levels)
+    # All mutations should go through here. Enforces len(lines) == len(levels)
     def __init__(self, log_type: LogType):
         self._lines:  list = []
         self._levels: list = []
