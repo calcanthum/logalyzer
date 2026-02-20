@@ -12,6 +12,7 @@ Keys:
   Esc       clear filter + level pills + field filters, return to log view
   t         toggle live tail
   s         toggle stats panel
+  l         change logtype
   e         export current stats
   d         open Docker container selector
   g / G     jump to top / bottom
@@ -19,7 +20,7 @@ Keys:
 
 Mouse:    scroll wheel navigates the log; click level pills to filter
           click a field value in a log line to start a field filter (two-click confirm)
-          left click on a field pill to remove that filter
+          double left click on a field pill to remove that filter
           right click on a field pill to invert that filter
 
 Log type definitions live in ./logtypes/*.json — copy and edit to add custom types.
@@ -1186,6 +1187,9 @@ class LogApp:
         self._status = StatusIndicator(); self._export_status = ''
         self._filter_deadline = None; self._last_spin_tick = 0.0
 
+        self._pending_pill: tuple | None = None
+        self.filter_submode = 'text'
+        self.pill_focus_idx = 0
         self.running = True; self.dirty = True
         self._apply_filter()
 
@@ -1211,7 +1215,9 @@ class LogApp:
     def set_log_type(self, lt):
         self.log_type = lt
         self.field_filters.clear(); self.field_filters_inverted.clear()
-        self._pending = None; self._relabel_pills(lt)
+        self._pending = None; self._pending_pill = None
+        self.pill_focus_idx = 0; self.filter_submode = 'text'
+        self._relabel_pills(lt)
         self._status.set_spinner('Applying log type')
         def _w():
             nl = [lt.detect_level(self.data.store.get_line(i))
@@ -1411,7 +1417,54 @@ class LogApp:
         self.field_filters[ft].add(p['value'])
         self._pending = None; self._apply_filter()
 
-    # Actions
+    # Pill keyboard-navigation helpers
+
+    def _navigable_pills(self) -> list:
+        # This must match the nav_idx increment order in _draw_statsbar exactly.
+
+        level = list(self.pills.values())
+        field = [pill for _, _, pill in self._field_pill_regions]
+        return level + field
+
+    def _clamp_pill_focus(self) -> None:
+        pills = self._navigable_pills()
+        if not pills:
+            self.pill_focus_idx = 0
+        else:
+            self.pill_focus_idx = min(self.pill_focus_idx, len(pills) - 1)
+
+    def _rebuild_level_filters(self) -> None:
+        self.level_filter.clear()
+        self.level_filter_inverted.clear()
+        for p in self.pills.values():
+            if p.active:
+                (self.level_filter_inverted if p.inverted
+                 else self.level_filter).add(p.level_key)
+
+    def _set_pending_pill(self, pill) -> None:
+        # Tracked via field_type, value tuple to survive FieldPillState draw call recreation
+        key = (pill.field_type, pill.value) if isinstance(pill, FieldPillState) \
+              else ('_level', pill.level_key)
+        if self._pending_pill == key:
+            self._remove_fpill(pill)
+            self._pending_pill = None
+            self._clamp_pill_focus()
+        else:
+            self._pending_pill = key
+        self.dirty = True
+
+    def _cancel_pending_pill(self) -> None:
+        if self._pending_pill is None:
+            return
+        self._pending_pill = None
+        self.dirty = True
+
+    def _pill_is_pending(self, pill) -> bool:
+        if self._pending_pill is None:
+            return False
+        key = (pill.field_type, pill.value) if isinstance(pill, FieldPillState) \
+              else ('_level', pill.level_key)
+        return self._pending_pill == key
 
     def toggle_tail(self):
         self.tail_mode = not self.tail_mode
@@ -1431,6 +1484,8 @@ class LogApp:
         for p in self.pills.values(): p.reset()
         self.field_filters.clear(); self.field_filters_inverted.clear()
         self.text_filter_inverted = False; self._pending = None
+        self._pending_pill = None; self.filter_submode = 'text'
+        self.pill_focus_idx = 0
         self.edit_field.clear(); self.filter_text = ''; self.focus = 'body'
         self._apply_filter()
 
@@ -1479,13 +1534,76 @@ class LogApp:
 
     def on_key(self, ch):
         if self.overlay: self._overlay_key(ch); return
-
         if self.focus == 'filter':
-            if ch == 27: self.clear_filter()
-            elif ch == 10: self.focus = 'body'
+            if ch == 27:
+                self.filter_submode = 'text'
+                self._cancel_pending_pill()
+                self.clear_filter()
+
+            elif ch == 9:  # Tab
+                if self.filter_submode == 'text':
+                    self.filter_submode = 'pills'
+                    self._clamp_pill_focus()
+                else:
+                    self.filter_submode = 'text'
+                    self._cancel_pending_pill()
+
+            elif self.filter_submode == 'pills':
+                pills = self._navigable_pills()
+
+                if ch == curses.KEY_LEFT:
+                    self.pill_focus_idx = max(0, self.pill_focus_idx - 1)
+                    self._cancel_pending_pill()
+
+                elif ch == curses.KEY_RIGHT:
+                    self.pill_focus_idx = min(len(pills) - 1, self.pill_focus_idx + 1)
+                    self._cancel_pending_pill()
+
+                elif ch == ord(' ') and pills:
+                    pill = pills[self.pill_focus_idx]
+                    if isinstance(pill, LevelPillState):
+                        self._cancel_pending_pill()
+                        pill.toggle(invert=False)
+                        self._rebuild_level_filters()
+                        self._apply_filter()
+                    else:
+                        self._set_pending_pill(pill)
+
+                elif ch in (curses.KEY_BACKSPACE, curses.KEY_DC, 127, 8) and pills:
+                    pill = pills[self.pill_focus_idx]
+                    self._cancel_pending_pill()
+                    if isinstance(pill, LevelPillState):
+                        pill.reset()
+                        self._rebuild_level_filters()
+                        self._apply_filter()
+                    else:
+                        self._remove_fpill(pill)
+                    self._clamp_pill_focus()
+
+                elif ch == ord('i') and pills:
+                    pill = pills[self.pill_focus_idx]
+                    self._cancel_pending_pill()
+                    if isinstance(pill, LevelPillState):
+                        pill.toggle(invert=True)
+                        self._rebuild_level_filters()
+                        self._apply_filter()
+                    else:
+                        self._invert_fpill(pill)
+
+                elif ch == 10:  # Enter
+                    self.filter_submode = 'text'
+                    self._cancel_pending_pill()
+
             else:
-                if self.edit_field.handle_key(ch):
-                    self.filter_text = self.edit_field.text; self._schedule_filter()
+                # filter_submode == 'text': keys go to the text field
+                if ch == 10:
+                    self.focus = 'body'
+                    self.filter_submode = 'text'
+                else:
+                    if self.edit_field.handle_key(ch):
+                        self.filter_text = self.edit_field.text
+                        self._schedule_filter()
+
             self.dirty = True; return
 
         if ch in (ord('q'), ord('Q')): self.running = False
@@ -1503,6 +1621,12 @@ class LogApp:
             if docker_available(): self.open_docker_selector()
         elif ch in (ord('l'), ord('L')):
             self.open_logtype_selector()
+        elif ch == curses.KEY_LEFT:
+            if self.show_stats:
+                self.stats_focused = False
+        elif ch == curses.KEY_RIGHT:
+            if self.show_stats:
+                self.stats_focused = True
         elif ch == curses.KEY_UP:
             if self.stats_focused:
                 self.stats_scroll = max(0, self.stats_scroll - 1)
@@ -1510,7 +1634,7 @@ class LogApp:
                 self.viewport_off = max(0, self.viewport_off - 1)
         elif ch == curses.KEY_DOWN:
             if self.stats_focused:
-                self.stats_scroll += 1  # clamped during draw
+                self.stats_scroll += 1
             else:
                 self.viewport_off = min(max(0, len(self.matched) - self.body_height),
                                         self.viewport_off + 1)
@@ -1521,7 +1645,7 @@ class LogApp:
                 self.viewport_off = max(0, self.viewport_off - self.body_height)
         elif ch == curses.KEY_NPAGE:
             if self.stats_focused:
-                self.stats_scroll += self.body_height  # clamped during draw
+                self.stats_scroll += self.body_height
             else:
                 self.viewport_off = min(max(0, len(self.matched) - self.body_height),
                                         self.viewport_off + self.body_height)
@@ -1540,7 +1664,7 @@ class LogApp:
             self.dirty = True; return
         if bstate & b5:
             if self.overlay: self.overlay_scroll += 3
-            elif in_stats: self.stats_scroll += 3  # clamped during draw
+            elif in_stats: self.stats_scroll += 3
             elif self.matched:
                 self.viewport_off = min(max(0, len(self.matched) - self.body_height),
                                         self.viewport_off + 3)
@@ -1556,9 +1680,10 @@ class LogApp:
         elif my == 2: self._handle_pill_click(mx, left, right)
         elif self.HDR <= my < self.HDR + self.body_height and left:
             if in_stats:
-                self.stats_focused = True  # click on stats panel focuses it
+                self.stats_focused = True
             else:
-                self.stats_focused = False  # click on log unfocuses stats
+                self.stats_focused = False
+                self._cancel_pending_pill()
                 self._handle_line_click(my, mx)
         self.dirty = True
 
@@ -1574,17 +1699,17 @@ class LogApp:
     def _handle_pill_click(self, mx, left, right):
         for xs, xe, pill in self._pill_regions:
             if xs <= mx < xe:
+                self._cancel_pending_pill()
                 pill.toggle(invert=right)
-                self.level_filter.clear(); self.level_filter_inverted.clear()
-                for p in self.pills.values():
-                    if p.active:
-                        (self.level_filter_inverted if p.inverted
-                         else self.level_filter).add(p.level_key)
+                self._rebuild_level_filters()
                 self._apply_filter(); return
         for xs, xe, pill in self._field_pill_regions:
             if xs <= mx < xe:
-                if left: self._remove_fpill(pill)
-                elif right: self._invert_fpill(pill)
+                if left:
+                    self._set_pending_pill(pill)
+                elif right:
+                    self._cancel_pending_pill()
+                    self._invert_fpill(pill)
                 return
 
     def _remove_fpill(self, pill):
@@ -1666,7 +1791,8 @@ class LogApp:
         self._draw_title(stdscr, mx)
         self._draw_filter(stdscr, mx)
         self._draw_statsbar(stdscr, mx)
-
+        if self.focus == 'filter' and self.filter_submode == 'pills':
+            self._clamp_pill_focus()
         bt = self.HDR
         if self.show_stats and mx > STATS_WIDTH + 10:
             lw = mx - STATS_WIDTH - 1
@@ -1717,27 +1843,42 @@ class LogApp:
         self._pill_regions = []; self._field_pill_regions = []; x = 0
         tt = f' Total {len(self.data.store):,}  '
         _safe(s, 2, x, tt, len(tt), _attr('st')); x += len(tt)
+        in_pill_mode = self.focus == 'filter' and self.filter_submode == 'pills'
+        nav_idx = 0
         for p in self.pills.values():
-            t = p.render_text(); sx = x
-            _safe(s, 2, x, t, len(t), _attr(p.attr_name())); x += len(t)
+            is_focused = in_pill_mode and nav_idx == self.pill_focus_idx
+            is_pending = self._pill_is_pending(p)
+            attr = 'hsel' if (is_focused or is_pending) else p.attr_name()
+            t = p.render_text()
+            sx = x
+            _safe(s, 2, x, t, len(t), _attr(attr)); x += len(t)
             self._pill_regions.append((sx, x, p))
+            nav_idx += 1
         if self.filter_err:
             e = '  \u26a0 bad regex'
             _safe(s, 2, x, e, len(e), _attr('ferr')); x += len(e)
         if self.filter_text and not self.filter_err:
             lb = 're' if self.use_regex else '~'
             fp = FieldPillState('_text_filter', lb, self.filter_text, self.text_filter_inverted)
+            is_focused = in_pill_mode and nav_idx == self.pill_focus_idx
+            is_pending = self._pill_is_pending(fp)
+            attr = 'hsel' if (is_focused or is_pending) else fp.attr_name()
             t = fp.render_text(); sx = x
-            _safe(s, 2, x, t, len(t), _attr(fp.attr_name())); x += len(t)
+            _safe(s, 2, x, t, len(t), _attr(attr)); x += len(t)
             self._field_pill_regions.append((sx, x, fp))
+            nav_idx += 1
         for ft, vals in self.field_filters.items():
             lb = next((f.label for f in self.log_type.stat_fields if f.type == ft), ft)
             for v in sorted(vals):
                 inv = (ft, v) in self.field_filters_inverted
                 fp = FieldPillState(ft, lb, v, inv)
+                is_focused = in_pill_mode and nav_idx == self.pill_focus_idx
+                is_pending = self._pill_is_pending(fp)
+                attr = 'hsel' if (is_focused or is_pending) else fp.attr_name()
                 t = fp.render_text(); sx = x
-                _safe(s, 2, x, t, len(t), _attr(fp.attr_name())); x += len(t)
+                _safe(s, 2, x, t, len(t), _attr(attr)); x += len(t)
                 self._field_pill_regions.append((sx, x, fp))
+                nav_idx += 1
         if self._pending:
             p = self._pending; t = f' \u25c8{p["label"]}:{p["value"][:24]} ? '
             _safe(s, 2, x, t, len(t), _attr('hsel')); x += len(t)
@@ -1774,30 +1915,26 @@ class LogApp:
                 _safe(s, ys + r, x, '\u2502', 1, _attr('scrollbar_trough'))
 
     def _draw_statspane(self, s, ys, xs, w, h, scroll: int = 0):
-        visible = max(0, h - 2)  # interior rows (excluding top/bottom border)
+        visible = max(0, h - 2)
         rows = self._build_stats_rows(w)
         max_scroll = max(0, len(rows) - visible)
         scroll = min(scroll, max_scroll)
-        # Write the clamped value back so key-scroll doesn't drift past the end
         self.stats_scroll = scroll
 
-        # Top border — highlight it when stats panel has keyboard focus
         border_attr = _attr('sp_hdr') if self.stats_focused else _attr('sp_border')
         _safe(s, ys, xs, '\u250c' + '\u2500' * (w - 2) + '\u2510', w, border_attr)
         title = ' Stats \u25bc' if self.stats_focused else ' Stats '
         tx = xs + max(1, (w - len(title)) // 2)
         _safe(s, ys, tx, title, len(title), _attr('sp_hdr'))
 
-        # Scrollbar thumb position along the right border
         if max_scroll > 0:
             thumb_row = round(scroll / max_scroll * (visible - 1))
         else:
             thumb_row = -1
 
         for i in range(1, h - 1):
-            ri = (i - 1) + scroll  # index into rows[] after applying scroll offset
+            ri = (i - 1) + scroll
             _safe(s, ys + i, xs, '\u2502', 1, border_attr)
-            # Right border doubles as a mini scrollbar when content overflows
             sb_char = '\u2503' if (i - 1) == thumb_row and max_scroll > 0 else '\u2502'
             sb_attr = _attr('scrollbar_thumb') if (i - 1) == thumb_row and max_scroll > 0 \
                       else border_attr
@@ -1847,6 +1984,40 @@ class LogApp:
                    ('fl',f'{p["label"]}: '),('hsel',f' {p["value"][:40]} '),
                    ('footer','  \u2190 click again to filter')]
             draw_token_row(s, row, 0, mx, tok, 'footer'); return
+
+        if self._pending_pill:
+            _, val = self._pending_pill
+            tok = [('fk','  Space'),('footer',':confirm remove  '),
+                   ('fk','Del'),    ('footer',':remove now  '),
+                   ('fk','Esc'),    ('footer',':cancel  '),
+                   ('footer', f'  \u25c8 pending: {str(val)[:40]}')]
+            draw_token_row(s, row, 0, mx, tok, 'footer'); return
+
+        if self.focus == 'filter' and self.filter_submode == 'pills':
+            pills = self._navigable_pills()
+            # clamp in case pill list shrank since last key event
+            if self.pill_focus_idx >= len(pills):
+                self.pill_focus_idx = max(0, len(pills) - 1)
+            current = pills[self.pill_focus_idx] if pills else None
+            if isinstance(current, LevelPillState):
+                extra = [('fk','Space'),('footer',':toggle  ')]
+            else:
+                extra = [('fk','Space'),('footer',':select to remove  ')]
+            tok = ([('fk','  \u2190\u2192'),('footer',':navigate  ')] +
+                   extra +
+                   [('fk','Del'),  ('footer',':remove  '),
+                    ('fk','i'),    ('footer',':invert  '),
+                    ('fk','Tab'),  ('footer',':back to search  '),
+                    ('fk','Esc'),  ('footer',':exit')])
+            draw_token_row(s, row, 0, mx, tok, 'footer'); return
+
+        if self.focus == 'filter' and self.filter_submode == 'text':
+            tok = [('fk','  Tab'),  ('footer',':navigate pills  '),
+                   ('fk','Enter'), ('footer',':done  '),
+                   ('fk','Esc'),   ('footer',':clear & exit')]
+            draw_token_row(s, row, 0, mx, tok, 'footer'); return
+
+        # Default footer
         n, m = len(self.data.store), len(self.matched)
         lf = f' (+{"+".join(sorted(self.level_filter))})' if self.level_filter else ''
         ff = ''
