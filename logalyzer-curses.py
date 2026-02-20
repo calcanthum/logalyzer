@@ -1118,6 +1118,27 @@ def draw_token_row(win, y, x, width, tokens, fill):
         _safe(win, y, col, ' ' * (end - col), end - col, _attr(fill))
 
 
+# Streaming session state
+
+class _StreamSession:
+    """Unified detection state for an active Docker or FIFO stream.
+
+    Each call to _on_docker_selected / open_fifo creates a fresh instance
+    with its own queue, so back-to-back container switches can never mix
+    messages from an old streamer into the new session.
+    """
+    __slots__ = ('q', 'detected', 'detect_buf', 'hint', 'log_types', 'label')
+
+    def __init__(self, q: _queue.SimpleQueue, hint: str,
+                 log_types: list, label: str):
+        self.q           = q
+        self.detected    = False
+        self.detect_buf: list = []
+        self.hint        = hint        # path (FIFO) or image basename (Docker)
+        self.log_types   = log_types
+        self.label       = label       # shown in error messages: 'Docker' / 'FIFO'
+
+
 # Main Application
 
 class LogApp:
@@ -1156,16 +1177,11 @@ class LogApp:
 
         self._load_q = _queue.SimpleQueue(); self._stats_q = _queue.SimpleQueue()
         self._settype_q = _queue.SimpleQueue(); self._docker_fetch_q = _queue.SimpleQueue()
-        self._docker_q = _queue.SimpleQueue(); self._stats_data = None
+        self._stats_data = None
 
-        self._streamer = None; self._docker_mode = False
-        self._docker_detect_buf = []; self._docker_detected = True
-        self._docker_log_types = []; self._docker_image_hint = ''
-
-        self._fifo_streamer = None; self._fifo_mode = False
-        self._fifo_q: _queue.SimpleQueue = _queue.SimpleQueue()
-        self._fifo_detect_buf: list = []; self._fifo_detected = False
-        self._fifo_path_hint = ''
+        self._streamer:       DockerStreamer | None  = None   # active Docker streamer
+        self._fifo_streamer:  FIFOStreamer   | None  = None   # active FIFO streamer
+        self._stream_session: _StreamSession | None  = None   # shared detection state
 
         self._status = StatusIndicator(); self._export_status = ''
         self._filter_deadline = None; self._last_spin_tick = 0.0
@@ -1251,34 +1267,34 @@ class LogApp:
         pt = next((lt for lt in lts if lt.id == 'other'), lts[-1])
         disp = container['name'] or container['short_id']
         nd = LogData(f"docker://{container['id']}", pt, display_name=f"\u2692 {disp}")
-        self.data = nd; self.log_type = pt; self._docker_mode = True; self.tail_mode = True
-        self._docker_detect_buf = []; self._docker_detected = False
-        self._docker_log_types = lts
-        self._docker_image_hint = container['image'].split(':')[0].split('/')[-1]
+        self.data = nd; self.log_type = pt; self.tail_mode = True
+        hint = container['image'].split(':')[0].split('/')[-1]
+        sq   = _queue.SimpleQueue()
+        self._stream_session = _StreamSession(sq, hint, lts, 'Docker')
         self.field_filters.clear(); self.field_filters_inverted.clear()
         self._pending = None; self.matched = []; self._relabel_pills(pt)
         self._stats_data = None; self.show_stats = False; self.overlay = None
-        self._streamer = DockerStreamer(container['id'], self._docker_q, tail=2000)
+        self._streamer = DockerStreamer(container['id'], sq, tail=2000)
         self._streamer.start(); self.dirty = True
 
-    def _drain_docker_stream_q(self):
+    def _drain_stream_q(self) -> None:
+        sess  = self._stream_session
         batch = []
         while True:
-            try: kind, payload = self._docker_q.get_nowait()
+            try: kind, payload = sess.q.get_nowait()
             except _queue.Empty: break
             if kind == 'line': batch.append(payload)
             elif kind == 'eof': self.tail_mode = False
-            elif kind == 'error': self._export_status = f'\u26a0 Docker: {payload}'
+            elif kind == 'error': self._export_status = f'\u26a0 {sess.label}: {payload}'
         if not batch: return
-        if not self._docker_detected:
-            self._docker_detect_buf.extend(batch)
-            if len(self._docker_detect_buf) >= 20:
-                det = auto_detect(self._docker_image_hint, self._docker_detect_buf,
-                                  self._docker_log_types)
-                self._docker_detected = True; self.log_type = det
+        if not sess.detected:
+            sess.detect_buf.extend(batch)
+            if len(sess.detect_buf) >= 20:
+                det = auto_detect(sess.hint, sess.detect_buf, sess.log_types)
+                sess.detected = True; self.log_type = det
                 self.data.set_type(det); self._relabel_pills(det)
-                batch = list(self._docker_detect_buf); self._docker_detect_buf = []
-        self._ingest_docker(batch)
+                batch = list(sess.detect_buf); sess.detect_buf = []
+        self._ingest_streamed(batch)
 
     # FIFO streaming
 
@@ -1288,35 +1304,16 @@ class LogApp:
         pt = next((lt for lt in self.log_types if lt.id == 'other'), self.log_types[-1])
         disp = os.path.basename(path)
         nd = LogData(path, pt, display_name=f'\u22b3 {disp}')
-        self.data = nd; self.log_type = pt; self._fifo_mode = True; self.tail_mode = True
-        self._fifo_detect_buf = []; self._fifo_detected = False
-        self._fifo_path_hint = path
+        self.data = nd; self.log_type = pt; self.tail_mode = True
+        sq   = _queue.SimpleQueue()
+        self._stream_session = _StreamSession(sq, path, self.log_types, 'FIFO')
         self.field_filters.clear(); self.field_filters_inverted.clear()
         self._pending = None; self.matched = []; self._relabel_pills(pt)
         self._stats_data = None; self.show_stats = False
-        self._fifo_streamer = FIFOStreamer(path, self._fifo_q)
+        self._fifo_streamer = FIFOStreamer(path, sq)
         self._fifo_streamer.start(); self.dirty = True
 
-    def _drain_fifo_stream_q(self) -> None:
-        batch = []
-        while True:
-            try: kind, payload = self._fifo_q.get_nowait()
-            except _queue.Empty: break
-            if kind == 'line': batch.append(payload)
-            elif kind == 'eof': self.tail_mode = False
-            elif kind == 'error': self._export_status = f'\u26a0 FIFO: {payload}'
-        if not batch: return
-        if not self._fifo_detected:
-            self._fifo_detect_buf.extend(batch)
-            if len(self._fifo_detect_buf) >= 20:
-                det = auto_detect(self._fifo_path_hint, self._fifo_detect_buf,
-                                  self.log_types)
-                self._fifo_detected = True; self.log_type = det
-                self.data.set_type(det); self._relabel_pills(det)
-                batch = list(self._fifo_detect_buf); self._fifo_detect_buf = []
-        self._ingest_docker(batch)
-
-    def _ingest_docker(self, lines):
+    def _ingest_streamed(self, lines: list) -> None:
         for l in lines: self.data.store.append(l)
         if len(self.data.store) > DOCKER_MAX_LINES:
             self.data.store.trim_front(len(self.data.store) - DOCKER_MAX_LINES)
@@ -1468,8 +1465,7 @@ class LogApp:
     def drain_queues(self):
         self._drain_load_q(); self._drain_settype_q(); self._drain_stats_q()
         self._drain_docker_fetch_q()
-        if self._docker_mode: self._drain_docker_stream_q()
-        if self._fifo_mode:   self._drain_fifo_stream_q()
+        if self._stream_session: self._drain_stream_q()
 
     def check_timers(self):
         now = time.monotonic()
@@ -1939,7 +1935,7 @@ def main():
         while app.running:
             app.drain_queues(); app.check_timers()
             # File tail polling
-            if app.tail_mode and not app._docker_mode and not app._fifo_mode and file_mode:
+            if app.tail_mode and not app._stream_session and file_mode:
                 new = app.data.poll_new()
                 if new:
                     store = app.data.store; nb = len(store) - len(new)
