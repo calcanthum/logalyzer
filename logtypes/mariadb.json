@@ -1,0 +1,87 @@
+{
+  "_comment": "MariaDB / MySQL error log — YYYY-MM-DD HH:MM:SS ID [Level] Component: message",
+  "id": "mariadb",
+  "name": "MariaDB / MySQL Error Log",
+
+  "detect": {
+    "filename_keywords": ["mariadb", "mysql", "mysqld", "mariadbd"],
+    "content_regex": "^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}\\s+\\d+\\s+\\[(Note|Warning|ERROR|Fatal)\\]"
+  },
+
+  "fields": [
+    {
+      "type": "timestamp",
+      "dtype": "timestamp",
+      "regex": "^(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})"
+    },
+    {
+      "_comment": "Component or subsystem name immediately after the [Level] tag, before a colon",
+      "type": "component",
+      "label": "Component",
+      "dtype": "text",
+      "regex": "\\]\\s+([A-Za-z][\\w./+-]{0,47}):",
+      "filterable": true
+    },
+    {
+      "type": "ip",
+      "label": "IP",
+      "dtype": "text",
+      "regex": "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b",
+      "multi": true,
+      "filterable": true
+    },
+    {
+      "_comment": "Database name from patterns like db: 'mydb' or database 'mydb'",
+      "type": "database",
+      "label": "Database",
+      "dtype": "text",
+      "regex": "(?:db|database):?\\s+'([^']+)'",
+      "flags": "i",
+      "filterable": true
+    },
+    {
+      "_comment": "Username from patterns like user: 'root' or user 'root'",
+      "type": "user",
+      "label": "User",
+      "dtype": "text",
+      "regex": "user:?\\s+'([^']+)'",
+      "flags": "i",
+      "filterable": true
+    },
+    {
+      "_comment": "Error message text, only captured for error/warning lines",
+      "type": "message",
+      "dtype": "text",
+      "regex": "\\]\\s+(.+)$",
+      "error_levels": ["error", "warn"]
+    }
+  ],
+
+  "level_labels": {
+    "error": "ERROR/FATAL",
+    "warn":  "WARNING",
+    "info":  "NOTE",
+    "debug": "DEBUG"
+  },
+
+  "level_rules": [
+    {"regex": "\\[(ERROR|Fatal)\\]",  "level": "error", "flags": "i"},
+    {"regex": "\\[(Warning)\\]",      "level": "warn",  "flags": "i"},
+    {"regex": "\\[(Note|Info)\\]",    "level": "info",  "flags": "i"},
+    {"regex": "\\[(Debug)\\]",        "level": "debug", "flags": "i"}
+  ],
+
+  "highlights": [
+    {"regex": "^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}",  "attr": "lno"},
+    {"regex": "\\d+\\s+(?=\\[)",                                  "attr": "lno"},
+    {"regex": "\\[(ERROR|Fatal)\\]",                               "attr": "he",  "flags": "i"},
+    {"regex": "\\[(Warning)\\]",                                   "attr": "hw",  "flags": "i"},
+    {"regex": "\\[(Note|Info)\\]",                                 "attr": "hi",  "flags": "i"},
+    {"regex": "\\[(Debug)\\]",                                     "attr": "hd",  "flags": "i"},
+    {"regex": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",                "attr": "hip"},
+    {"regex": "\\b(InnoDB|Aria|Galera|wsrep|mysqld|mariadbd):",   "attr": "hd",  "flags": "i"},
+    {"regex": "\\bAborted\\b",                                     "attr": "he",  "flags": "i"},
+    {"regex": "\\b(crashed|corruption|deadlock|timeout)\\b",       "attr": "he",  "flags": "i"},
+    {"regex": "'[^']*'",                                           "attr": "hd"}
+  ]
+}
