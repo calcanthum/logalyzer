@@ -31,6 +31,7 @@ python logalyzer.py -F <FIFO>
 
 Journald can write to a FIFO for logalyzer:
 ```
+mkfifo /tmp/journal.pipe
 journalctl -f -o short-iso > /tmp/journal.pipe & python3 logalyzer.py -F /tmp/journal.pipe
 ```
 
