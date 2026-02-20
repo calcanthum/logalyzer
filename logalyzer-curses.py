@@ -4,6 +4,7 @@ logalyzer.py — Terminal log analyzer with mouse support
 
 Usage:    python logalyzer.py -f <logfile>
           python logalyzer.py -d
+          python logalyzer.py -F <FIFO>
 
 Keys:
   /         focus filter bar
@@ -27,6 +28,7 @@ Log type definitions live in ./logtypes/*.json — copy and edit to add custom t
 import curses
 import re
 import os
+import stat
 import sys
 import time
 import socket as _socket
@@ -829,6 +831,54 @@ class DockerStreamer:
         except OSError: pass
 
 
+class FIFOStreamer:
+    """
+    Bridges a named pipe to the ingest queue.
+
+    A dedicated daemon thread owns the blocking open() and all subsequent
+    reads, keeping the UI thread free. Stop by calling stop(); the write-end
+    trick is necessary because readline() on a starved pipe blocks forever
+    and cannot otherwise be interrupted from outside the thread.
+    """
+    def __init__(self, path: str, q: _queue.SimpleQueue):
+        self._path   = path
+        self._q      = q
+        self._stop   = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name=f'fifo-stream-{os.path.basename(path)}')
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        """
+        A pipe with no pending data blocks readline() indefinitely.
+        Opening the write end forces an EOF on the read end, which
+        unblocks the thread so it can check the stop flag and exit.
+        """
+        try:
+            fd = os.open(self._path, os.O_WRONLY | os.O_NONBLOCK)
+            os.close(fd)
+        except OSError:
+            pass  # pipe already closed; thread will exit on its own
+
+    def _run(self) -> None:
+        try:
+            fd = os.open(self._path, os.O_RDONLY)          # blocks until writer ready
+            with os.fdopen(fd, errors='replace') as fh:
+                for raw in fh:
+                    if self._stop.is_set():
+                        break
+                    line = raw.rstrip('\n')
+                    if line:
+                        self._q.put(('line', line))
+        except OSError as exc:
+            if not self._stop.is_set():
+                self._q.put(('error', str(exc)))
+        self._q.put(('eof', None))
+
+
 # Stats / export helpers
 
 STATS_WIDTH     = 44
@@ -1112,6 +1162,11 @@ class LogApp:
         self._docker_detect_buf = []; self._docker_detected = True
         self._docker_log_types = []; self._docker_image_hint = ''
 
+        self._fifo_streamer = None; self._fifo_mode = False
+        self._fifo_q: _queue.SimpleQueue = _queue.SimpleQueue()
+        self._fifo_detect_buf: list = []; self._fifo_detected = False
+        self._fifo_path_hint = ''
+
         self._status = StatusIndicator(); self._export_status = ''
         self._filter_deadline = None; self._last_spin_tick = 0.0
 
@@ -1225,23 +1280,47 @@ class LogApp:
                 batch = list(self._docker_detect_buf); self._docker_detect_buf = []
         self._ingest_docker(batch)
 
+    # FIFO streaming
+
+    def open_fifo(self, path: str) -> None:
+        if self._fifo_streamer:
+            self._fifo_streamer.stop(); self._fifo_streamer = None
+        pt = next((lt for lt in self.log_types if lt.id == 'other'), self.log_types[-1])
+        disp = os.path.basename(path)
+        nd = LogData(path, pt, display_name=f'\u22b3 {disp}')
+        self.data = nd; self.log_type = pt; self._fifo_mode = True; self.tail_mode = True
+        self._fifo_detect_buf = []; self._fifo_detected = False
+        self._fifo_path_hint = path
+        self.field_filters.clear(); self.field_filters_inverted.clear()
+        self._pending = None; self.matched = []; self._relabel_pills(pt)
+        self._stats_data = None; self.show_stats = False
+        self._fifo_streamer = FIFOStreamer(path, self._fifo_q)
+        self._fifo_streamer.start(); self.dirty = True
+
+    def _drain_fifo_stream_q(self) -> None:
+        batch = []
+        while True:
+            try: kind, payload = self._fifo_q.get_nowait()
+            except _queue.Empty: break
+            if kind == 'line': batch.append(payload)
+            elif kind == 'eof': self.tail_mode = False
+            elif kind == 'error': self._export_status = f'\u26a0 FIFO: {payload}'
+        if not batch: return
+        if not self._fifo_detected:
+            self._fifo_detect_buf.extend(batch)
+            if len(self._fifo_detect_buf) >= 20:
+                det = auto_detect(self._fifo_path_hint, self._fifo_detect_buf,
+                                  self.log_types)
+                self._fifo_detected = True; self.log_type = det
+                self.data.set_type(det); self._relabel_pills(det)
+                batch = list(self._fifo_detect_buf); self._fifo_detect_buf = []
+        self._ingest_docker(batch)
+
     def _ingest_docker(self, lines):
         for l in lines: self.data.store.append(l)
-        overflow = len(self.data.store) - DOCKER_MAX_LINES
-        if overflow > 0:
-            self.data.store.trim_front(overflow); self._apply_filter()
-        else:
-            store = self.data.store; nb = len(store) - len(lines)
-            lf, fre = self.level_filter, self.filter_re
-            for j, l in enumerate(lines):
-                i = nb + j; lvl = store.get_level(i)
-                if lf and lvl not in lf: continue
-                if self.level_filter_inverted and lvl in self.level_filter_inverted: continue
-                if fre and not fre.search(l): continue
-                self.matched.append(i)
-        if self.tail_mode and self.matched:
-            self.viewport_off = max(0, len(self.matched) - self.body_height)
-        self._refresh_pill_counts(); self.dirty = True
+        if len(self.data.store) > DOCKER_MAX_LINES:
+            self.data.store.trim_front(len(self.data.store) - DOCKER_MAX_LINES)
+        self._apply_filter()
 
     # Pills
 
@@ -1390,6 +1469,7 @@ class LogApp:
         self._drain_load_q(); self._drain_settype_q(); self._drain_stats_q()
         self._drain_docker_fetch_q()
         if self._docker_mode: self._drain_docker_stream_q()
+        if self._fifo_mode:   self._drain_fifo_stream_q()
 
     def check_timers(self):
         now = time.monotonic()
@@ -1808,14 +1888,26 @@ def main():
     src.add_argument('-f', '--file', metavar='PATH', help='Log file to open')
     src.add_argument('-d', '--docker', action='store_true',
                      help='Connect to Docker and select a container')
+    src.add_argument('-F', '--fifo', metavar='PATH',
+                     help='Read from a named pipe / FIFO (e.g. mkfifo journald)')
     args = ap.parse_args()
 
     if args.docker and not docker_available():
         sys.exit('Error: Docker socket not found at /var/run/docker.sock')
 
+    if args.fifo:
+        fifo_path = args.fifo
+        try:
+            st = os.stat(fifo_path)
+        except OSError as e:
+            sys.exit(f'Error: cannot stat {fifo_path!r}: {e}')
+        if not stat.S_ISFIFO(st.st_mode):
+            sys.exit(f'Error: {fifo_path!r} is not a named pipe. '
+                     f'Create one with: mkfifo {fifo_path}')
+
     log_types = load_log_types()
     plain_type = next((lt for lt in log_types if lt.id == 'other'), log_types[-1])
-    file_mode = bool(args.file); docker_mode = args.docker
+    file_mode = bool(args.file); docker_mode = args.docker; fifo_mode = bool(args.fifo)
 
     if file_mode:
         path = args.file
@@ -1824,6 +1916,10 @@ def main():
             preview = [fh.readline().rstrip('\n') for _ in range(50)]
         detected = auto_detect(path, preview, log_types)
         data = LogData(path, detected)
+    elif fifo_mode:
+        detected = plain_type
+        data = LogData(args.fifo, plain_type,
+                       display_name=f'\u22b3 {os.path.basename(args.fifo)}')
     else:
         detected = plain_type
         data = LogData('', plain_type, display_name='(connecting to Docker\u2026)')
@@ -1837,12 +1933,13 @@ def main():
 
         app = LogApp(data, log_types, detected)
         if file_mode: app.open_logtype_selector(); app.start_async_load()
+        elif fifo_mode: app.open_fifo(args.fifo)
         elif docker_mode: app.open_docker_selector()
 
         while app.running:
             app.drain_queues(); app.check_timers()
             # File tail polling
-            if app.tail_mode and not app._docker_mode and file_mode:
+            if app.tail_mode and not app._docker_mode and not app._fifo_mode and file_mode:
                 new = app.data.poll_new()
                 if new:
                     store = app.data.store; nb = len(store) - len(new)
@@ -1870,6 +1967,7 @@ def main():
                 app.dirty = False
 
         if app._streamer: app._streamer.stop()
+        if app._fifo_streamer: app._fifo_streamer.stop()
 
     os.environ.setdefault('ESCDELAY', '25')
     curses.wrapper(run_curses)
