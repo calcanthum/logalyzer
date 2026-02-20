@@ -1449,6 +1449,7 @@ class LogApp:
         self.dirty = True
 
     def open_logtype_selector(self):
+        self._pre_selector_type = self.log_type
         self.overlay = 'logtype'
         self.overlay_title = '\u25c9 LogAlyzer \u2014 Select Log Type'
         self.overlay_state = 'ready'; items = []; fi = 0
@@ -1500,6 +1501,8 @@ class LogApp:
         elif ch in (ord('e'), ord('E')): self.export_stats()
         elif ch in (ord('d'), ord('D')):
             if docker_available(): self.open_docker_selector()
+        elif ch in (ord('l'), ord('L')):
+            self.open_logtype_selector()
         elif ch == curses.KEY_UP:
             if self.stats_focused:
                 self.stats_scroll = max(0, self.stats_scroll - 1)
@@ -1626,7 +1629,7 @@ class LogApp:
 
     def _overlay_key(self, ch):
         if ch == 27:
-            if self.overlay == 'logtype': self.set_log_type(self._detected)
+            if self.overlay == 'logtype': self.set_log_type(getattr(self, '_pre_selector_type', self._detected))
             self.overlay = None; self.dirty = True; return
         if ch == curses.KEY_UP:
             self.overlay_focus = max(0, self.overlay_focus - 1); self.dirty = True; return
@@ -1856,14 +1859,11 @@ class LogApp:
         tok = [('fk','  q'),('footer',':quit  '),('fk','/'),('footer',':filter  '),
                ('fk','t'),('footer',':tail  '),('fk','s'),('footer',':stats  '),
                ('fk','e'),('footer',':export  '),('fk','d'),('footer',':docker  '),
+               ('fk','l'),('footer',':logtype  '),
                ('fk','Esc'),('footer',':clear  '),('fk','g'),('footer','/'),
-               ('fk','G'),('footer',':top/btm  ')]
-        if self.show_stats:
-            if self.stats_focused:
-                tok += [('fk','Esc'),('footer',':unfocus stats  ')]
-            else:
-                tok += [('footer','  click stats to scroll it  ')]
-        tok.append(('footer', f'  R-click=invert  {m:,}/{n:,} lines{lf}{ff}'))
+               ('fk','G'),('footer',':top/btm  '),
+               ('footer','  click field to filter  R-click=invert  '),
+               ('footer', f'{m:,}/{n:,} lines{lf}{ff}')]
         if self._export_status: tok.append(('footer', f'  {self._export_status}'))
         draw_token_row(s, row, 0, mx, tok, 'footer')
 
