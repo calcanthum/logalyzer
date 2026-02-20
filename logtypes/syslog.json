@@ -17,17 +17,17 @@
       "regex": "^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})?|\\w{3}[ \\t]+\\d{1,2}[ \\t]+\\d{2}:\\d{2}:\\d{2})"
     },
     {
-      "_comment": "Hostname is the second whitespace-delimited token after the timestamp",
+      "_comment": "Hostname: skip either a single ISO timestamp token or a 3-token BSD timestamp, then capture the host",
       "type": "hostname",
       "dtype": "text",
-      "regex": "^\\S+[ \\t]+(\\S+)[ \\t]+\\S",
+      "regex": "(?:^\\d{4}-\\S+|^\\w{3}[ \\t]+\\d{1,2}[ \\t]+\\d{2}:\\d{2}:\\d{2})[ \\t]+(\\S+)",
       "filterable": true
     },
     {
-      "_comment": "Service/process name — the TAG in RFC 3164 terms, with optional [pid] stripped. Anchored to the token immediately followed by [ or : to avoid false matches in message body.",
+      "_comment": "Service/process name: skip timestamp (ISO or BSD) and hostname, capture TAG before optional (subsystem), [pid], and colon",
       "type": "service",
       "dtype": "text",
-      "regex": "^\\S+[ \\t]+\\S+[ \\t]+([a-zA-Z][\\w./:-]{0,47})(?:\\[\\d+\\])?:",
+      "regex": "(?:^\\d{4}-\\S+|^\\w{3}[ \\t]+\\d{1,2}[ \\t]+\\d{2}:\\d{2}:\\d{2})[ \\t]+\\S+[ \\t]+([a-zA-Z][\\w./:-]{0,47})(?:\\([^)]*\\))?(?:\\[\\d+\\])?:",
       "filterable": true
     },
     {

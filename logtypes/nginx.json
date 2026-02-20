@@ -38,6 +38,13 @@
       "filterable": true
     },
     {
+      "type": "http_version",
+      "label": "HTTP Version",
+      "dtype": "text",
+      "regex": "HTTP/([\\d.]+)\"",
+      "filterable": true
+    },
+    {
       "type": "http_method",
       "label": "HTTP Method",
       "dtype": "text",
@@ -89,6 +96,7 @@
     {"regex": "(?<=\"\\s)[3]\\d{2}(?=\\s)",   "attr": "h3xx"},
     {"regex": "(?<=\"\\s)[2]\\d{2}(?=\\s)",   "attr": "h2ok"},
     {"regex": "(?<=\"\\s)[1]\\d{2}(?=\\s)",   "attr": "hi"},
-    {"regex": "\"[A-Z]+ [^\"]+\"",            "attr": "hi"}
+    {"regex": "\"[A-Z]+ [^\"]+\"",            "attr": "hi"},
+    {"regex": "HTTP/[\\d.]+(?=\")",           "attr": "lno"}
   ]
 }
