@@ -82,3 +82,10 @@ Supported types out of the box:
 ## Stats Export
 
 Press `e` to write a plain-text stats file to the current working directory. The filename is printed in the footer after export.
+
+## Screenshots
+<div align="center">
+  <img src="screenshots/screenshot.png" width="30%"/>
+  <img src="screenshots/screenshot2.png" width="30%"/>
+  <img src="screenshots/screenshot3.png" width="30%"/>
+</div>
