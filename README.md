@@ -5,11 +5,6 @@ Terminal UI log analyzer with mouse support.
 ## Requirements
 
 - Python 3.10 or later
-- urwid
-
-```
-pip install urwid
-```
 
 ## Installation
 
@@ -27,6 +22,16 @@ python logalyzer.py -f <logfile>
 Docker logs:
 ```
 python logalyzer.py -d
+```
+
+FIFO logs:
+```
+python logalyzer.py -F <FIFO>
+```
+
+Journald can write to a FIFO for logalyzer:
+```
+journalctl -f -o short-iso > /tmp/journal.pipe & python3 logalyzer.py -F /tmp/journal.pipe
 ```
 
 ## Log Types
@@ -49,12 +54,12 @@ Supported types out of the box:
 |-----|--------|
 | `/` | Focus filter bar |
 | `Enter` | Return to log view |
-| `Esc` | Clear filter, level pills, and field filters; return to log view |
+| `Esc` | Clear filter + level pills + field filters, return to log view |
 | `t` | Toggle live tail |
 | `s` | Toggle stats panel |
 | `e` | Export current stats to file |
-| `g` | Jump to top |
-| `G` | Jump to bottom |
+| `d` | Open Docker container selector |
+| `g / G` | Jump to top / bottom |
 | `q` | Quit |
 
 ## Mouse
