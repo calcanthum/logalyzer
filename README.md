@@ -85,7 +85,7 @@ Press `e` to write a plain-text stats file to the current working directory. The
 
 ## Screenshots
 <div align="center">
-  <img alt="screenshot" src="https://github.com/user-attachments/assets/956a850e-b083-49c5-bf77-f6ddb3306d45" width="30%"/>
-  <img alt="screenshot2" src="https://github.com/user-attachments/assets/9a94775c-6ef0-44b8-8312-ca9578f0bf00" width="30%"/>
-  <img alt="screenshot3" src="https://github.com/user-attachments/assets/53ca8a45-4f86-461d-80e9-ee9ff8e1291b" width="30%"/>
+  <img alt="screenshot" src="https://github.com/user-attachments/assets/df2284e0-95d2-4e7f-91c1-7db9668ae6a7" width="30%"/>
+  <img alt="screenshot2" src="https://github.com/user-attachments/assets/613af3cd-c765-4353-a78a-372709ee89dc" width="30%"/>
+  <img alt="screenshot3" src="https://github.com/user-attachments/assets/93534295-33ac-458a-b68b-7a28b6c4da4a" width="30%"/>
 </div>
