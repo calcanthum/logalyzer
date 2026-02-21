@@ -1,87 +1,128 @@
 # LogAlyzer
 
-Terminal UI log analyzer with mouse support.
+Terminal log viewer with filtering, stats, live tail, and mouse support. No dependencies beyond Python 3.10+.
 
-## Requirements
-
-- Python 3.10 or later
-
-## Installation
-
-```
-git clone https://github.com/calcanthum/logalyzer.git
-```
-
-## Usage
-
-Log file:
 ```
 python logalyzer.py -f <logfile>
+python logalyzer.py -d              # Docker container selector
+python logalyzer.py -F <fifo>       # Named pipe
 ```
 
-Docker logs:
-```
-python logalyzer.py -d
-```
+Journald example:
 
-FIFO logs:
-```
-python logalyzer.py -F <FIFO>
-```
-### Usage Examples
-
-Nginx:
-```
-python logalyzer.py -f /var/log/nginx/access.log
-```
-
-Journald can write to a FIFO for logalyzer:
-```
+```sh
 mkfifo /tmp/journal.pipe
-journalctl -f -o short-iso > /tmp/journal.pipe & python3 logalyzer.py -F /tmp/journal.pipe
+journalctl -f -o short-iso > /tmp/journal.pipe &
+python3 logalyzer.py -F /tmp/journal.pipe
 ```
 
 ## Log Types
 
-Log type definitions are stored in `logtypes/*.json`. The program selects a type based on the filename and file contents. To add a type, copy an existing `.json` file and edit it.
-
-Supported types out of the box:
+Detected automatically from filename and file contents. Press `l` to switch manually.
 
 | File | Type |
 |------|------|
-| nginx.json | Nginx Access Log |
-| nginx-error.json | Nginx Error Log |
-| syslog.json | Syslog / Journald |
-| wine.json | Wine / Proton Debug Log |
-| generic.json | Generic Application Log |
+| `nginx.json` | Nginx access log |
+| `nginx-error.json` | Nginx error log |
+| `syslog.json` | Syslog / journald |
+| `mariadb.json` | MariaDB / MySQL error log |
+| `wine.json` | Wine / Proton debug log |
+| `generic.json` | Generic application log |
+
+To add a type, copy an existing JSON file and edit it.
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
-| `/` | Focus filter bar |
+| `/` | Open filter bar |
+| `Tab` | (in filter bar) Switch between text field and filter pills |
 | `Enter` | Return to log view |
-| `Esc` | Clear filter + level pills + field filters, return to log view |
+| `Esc` | Clear all filters |
 | `t` | Toggle live tail |
 | `s` | Toggle stats panel |
-| `e` | Export current stats to file |
-| `d` | Open Docker container selector |
-| `g / G` | Jump to top / bottom |
+| `←` / `→` | Move focus between log and stats panel |
+| `e` | Export stats to file |
+| `d` | Docker container selector |
+| `l` | Log type selector |
+| `g` / `G` | Top / bottom |
 | `q` | Quit |
 
-## Mouse
+## Filtering
 
-| Action | Result |
-|--------|--------|
-| Scroll wheel / Click scrollbar | Navigate the log |
-| Click level pill | Toggle level filter |
-| Click a field value | Select field filter (confirm with second click) |
-| Left click on a field pill | Remove that filter |
-| Right click on a field pill | Invert that filter |
+**Text:** Press `/` and type. Toggle Regex and Case checkboxes at the right of the filter bar.
 
-## Stats Export
+**Level pills:** Click a level pill to show only that level. Right-click to exclude it.
 
-Press `e` to write a plain-text stats file to the current working directory. The filename is printed in the footer after export.
+**Field filters:** Filterable values (IPs, paths, hostnames, etc.) are underlined in the log view. Click a value to create a pending filter (it will appear in the stats bar). Click the same value again to apply it. Right-click a pill to invert it.
+
+In keyboard mode (`Tab` from the filter bar): `←` / `→` navigate pills, `Space` toggles, `i` inverts, `Del` removes.
+
+All active filters combine with AND.
+
+## Stats Panel
+
+Shows an activity histogram and top values for filterable fields, computed from the current view. Press `e` to export to a plain-text file in the working directory.
+
+## Log Type JSON Format
+
+```json
+{
+  "id": "my_log",
+  "name": "My Log Format",
+  "detect": {
+    "filename_keywords": ["myapp"],
+    "content_regex": "^\\d{4}-\\d{2}-\\d{2}"
+  },
+  "fields": [...],
+  "level_rules": [...],
+  "highlights": [...]
+}
+```
+
+**`detect`** — `filename_keywords` matched against the filename; `content_regex` tested against the first 20 lines. Highest score wins.
+
+**`level_rules`** — classify each line. First match wins.
+
+```json
+{"regex": "\\b(ERROR|ERR)\\b", "level": "error", "flags": "i"}
+```
+
+Levels: `error`, `warn`, `info`, `debug`.
+
+**`highlights`** — apply color to matched spans. Only recolors spans still at their base attribute.
+
+```json
+{"regex": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b", "attr": "hip"}
+```
+
+`attr` values: `he` (error), `hw` (warn), `hi` (info), `hd` (debug), `hip` (IP), `h2ok`, `h3xx`, `h4xx`, `lno` (dim).
+
+**`fields`** — what to extract for stats and filtering.
+
+```json
+{
+  "type": "ip",
+  "label": "IP",
+  "dtype": "text",
+  "regex": "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b",
+  "multi": true,
+  "filterable": true
+}
+```
+
+| Key | Notes |
+|-----|-------|
+| `dtype` | `timestamp`, `text`, `numeric`, `compound` |
+| `multi` | Extract all matches per line, not just the first |
+| `filterable` | Underlines the value in the log view; click to filter |
+| `normalize` | Replaces numeric/UUID path segments with `{id}` |
+| `error_levels` | Only extract for lines at these levels |
+| `group` | Regex capture group (default: 1) |
+| `buckets` | For `numeric`: map value ranges to labels |
+| `components` + `format` | For `compound`: combine fields, e.g. `"{http_method} {http_path}"` |
+
+**`level_labels`** — override pill display names, e.g. `"error": "5xx"`.
 
 ## Screenshots
 <div align="center">
