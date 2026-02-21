@@ -136,7 +136,7 @@ Levels: `error`, `warn`, `info`, `debug`.
 
 ## Screenshots
 <div align="center">
-  <img alt="screenshot" src="https://github.com/user-attachments/assets/df2284e0-95d2-4e7f-91c1-7db9668ae6a7" width="30%"/>
-  <img alt="screenshot2" src="https://github.com/user-attachments/assets/613af3cd-c765-4353-a78a-372709ee89dc" width="30%"/>
-  <img alt="screenshot3" src="https://github.com/user-attachments/assets/93534295-33ac-458a-b68b-7a28b6c4da4a" width="30%"/>
+  <img alt="screenshot" src="https://github.com/user-attachments/assets/075e0f4f-1f75-4fcd-bfa2-0441450779b7" width="30%"/>
+  <img alt="screenshot2" src="https://github.com/user-attachments/assets/a7b18fa2-d656-4529-aac1-669c269b7e87" width="30%"/>
+  <img alt="screenshot3" src="https://github.com/user-attachments/assets/2d9ebfcc-f56b-4e78-8cbe-c6bff38c4243" width="30%"/>
 </div>
