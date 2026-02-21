@@ -121,6 +121,8 @@ Levels: `error`, `warn`, `info`, `debug`.
 }
 ```
 
+**`level_labels`** — override pill display names, e.g. `"error": "5xx"`.
+
 | Key | Notes |
 |-----|-------|
 | `dtype` | `timestamp`, `text`, `numeric`, `compound` |
@@ -131,8 +133,6 @@ Levels: `error`, `warn`, `info`, `debug`.
 | `group` | Regex capture group (default: 1) |
 | `buckets` | For `numeric`: map value ranges to labels |
 | `components` + `format` | For `compound`: combine fields, e.g. `"{http_method} {http_path}"` |
-
-**`level_labels`** — override pill display names, e.g. `"error": "5xx"`.
 
 ## Screenshots
 <div align="center">
