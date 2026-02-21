@@ -562,10 +562,10 @@ def auto_detect(path: str, lines: list, log_types: list) -> LogType:
 class LineStore:
     # All mutations should go through here. Enforces len(lines) == len(levels)
     def __init__(self, log_type: LogType):
-        self._lines:  list = []
-        self._levels: list = []
-        self._lt           = log_type
-
+        self._lines:       list = []
+        self._lines_lower: list = []   # cached lower-case copy for literal search
+        self._levels:      list = []
+        self._lt                = log_type
     def __len__(self) -> int:
         return len(self._lines)
 
@@ -581,13 +581,14 @@ class LineStore:
     def append(self, line: str) -> None:
         # Append a line and automatically classify its level.
         self._lines.append(line)
+        self._lines_lower.append(line.lower())
         self._levels.append(self._lt.detect_level(line))
 
     def bulk_load(self, lines: list, levels: list) -> None:
         assert len(lines) == len(levels)
-        self._lines  = lines
-        self._levels = levels
-
+        self._lines       = lines
+        self._lines_lower = [l.lower() for l in lines]
+        self._levels      = levels
     def replace_levels(self, new_levels: list) -> None:
         assert len(new_levels) == len(self._lines)
         self._levels = new_levels
@@ -597,9 +598,9 @@ class LineStore:
         self._levels = [lt.detect_level(l) for l in self._lines]
 
     def trim_front(self, n: int) -> None:
-        self._lines  = self._lines[n:]
-        self._levels = self._levels[n:]
-
+        self._lines       = self._lines[n:]
+        self._lines_lower = self._lines_lower[n:]
+        self._levels      = self._levels[n:]
     def level_counts(self, indices=None) -> dict:
         src = self._levels if indices is None else [self._levels[i] for i in indices]
         c: dict = defaultdict(int)
@@ -1354,6 +1355,17 @@ class LogApp:
         else:
             self.filter_re = None; self.filter_err = False
 
+        # ── Short-circuit: no filters active, every line matches ─────────────
+        if not text and not lf and not lf_i and not ff:
+            self.matched = list(range(len(store)))
+            self._refresh_pill_counts()
+            mx = max(0, len(self.matched) - max(1, self.body_height))
+            self.viewport_off = min(self.viewport_off, mx)
+            if self.tail_mode and self.matched: self.viewport_off = mx
+            self.dirty = True
+            return
+
+        # ── Resolve field filters once outside the loop ──────────────────────
         ff_fields = {}
         for ft, values in ff.items():
             f = next((f for f in self.log_type.stat_fields if f.type == ft), None)
@@ -1362,25 +1374,57 @@ class LogApp:
                 exc = {v for v in values if (ft, v) in ff_i}
                 ff_fields[ft] = (f, inc, exc)
 
+        # ── Decide text-match strategy once, outside the loop ────────────────
+        # Literal searches bypass the regex engine entirely.
+        # Case-insensitive literal: use the pre-lowercased cache on LineStore
+        # so the inner loop never calls .lower() at all.
+        text_active   = bool(text) and not self.filter_err
+        use_literal   = text_active and not self.use_regex
+        use_regex_pat = text_active and self.use_regex and pat is not None
+
+        needle      = ''
+        lines_lower = None
+        if use_literal:
+            if self.case_sens:
+                needle = text
+            else:
+                needle      = text.lower()
+                lines_lower = store._lines_lower   # pre-built, no per-call cost
+
+        # ── Main filter loop ─────────────────────────────────────────────────
+        _lines  = store._lines
+        _levels = store._levels
         matched = []
-        for i in range(len(store)):
-            line, lvl = store[i]
-            if lf and lvl not in lf: continue
-            if lf_i and lvl in lf_i: continue
-            if pat:
-                m = pat.search(line)
-                if t_inv:
-                    if m: continue
+        append  = matched.append
+
+        for i in range(len(_lines)):
+            lvl = _levels[i]
+            if lf   and lvl not in lf:  continue
+            if lf_i and lvl in  lf_i:   continue
+
+            if text_active:
+                if use_literal:
+                    if self.case_sens:
+                        hit = needle in _lines[i]
+                    else:
+                        hit = needle in lines_lower[i]
                 else:
-                    if not m: continue
+                    hit = pat.search(_lines[i]) is not None
+                if t_inv:
+                    if hit:      continue
+                else:
+                    if not hit:  continue
+
             if ff_fields:
-                ok = True
+                line = _lines[i]
+                ok   = True
                 for ft, (f, inc, exc) in ff_fields.items():
                     val = f.extract(line)
                     if inc and val not in inc: ok = False; break
                     if exc and val in exc: ok = False; break
                 if not ok: continue
-            matched.append(i)
+
+            append(i)
 
         self.matched = matched; self._refresh_pill_counts()
         mx = max(0, len(matched) - max(1, self.body_height))
