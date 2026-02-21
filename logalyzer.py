@@ -1064,10 +1064,26 @@ class FieldPillState:
 
 # Drawing helpers
 
+class TogglePillState:
+    def __init__(self, name: str, label: str, getter, setter):
+        self.name    = name
+        self.label   = label
+        self._get    = getter
+        self._set    = setter
+    @property
+    def state(self) -> bool:
+        return self._get()
+    def toggle(self) -> None:
+        self._set(not self._get())
+    def render_text(self) -> str:
+        m = 'x' if self._get() else ' '
+        return f' [{m}]{self.label} '
+    def attr_name(self) -> str:
+        return 'fpill_a' if self._get() else 'fpill_n'
+
 def _safe(win, y, x, text, n, attr=0):
     try: win.addnstr(y, x, text, n, attr)
     except curses.error: pass
-
 
 def draw_tokens(win, y, x, max_w, tokens, underline_spans=None):
     col, end = x, x + max_w
@@ -1101,7 +1117,6 @@ def draw_tokens(win, y, x, max_w, tokens, underline_spans=None):
         col += len(seg)
     if col < end:
         _safe(win, y, col, ' ' * (end - col), end - col, _attr('ln'))
-
 
 def draw_token_row(win, y, x, width, tokens, fill):
     col, end = x, x + width
@@ -1148,6 +1163,11 @@ class LogApp:
         self.text_filter_inverted = False
 
         self.show_lineno = True; self.tail_mode = False; self.show_stats = False
+        self.toggle_pills = [
+            TogglePillState('regex', 'Rx', lambda: self.use_regex,   lambda v: setattr(self, 'use_regex',   v)),
+            TogglePillState('case',  'Cs', lambda: self.case_sens,   lambda v: setattr(self, 'case_sens',   v)),
+            TogglePillState('lno',   'Ln', lambda: self.show_lineno, lambda v: setattr(self, 'show_lineno', v)),
+        ]
         self.viewport_off = 0; self.body_height = 0; self.body_width = 0
 
         self.level_filter: set = set()
@@ -1166,8 +1186,7 @@ class LogApp:
         self.overlay_scroll = 0; self.overlay_title = ''; self.overlay_on_select = None
         self.overlay_state = 'ready'; self.overlay_error = ''
         self._overlay_rect = (0, 0, 0, 0)
-
-        self._pill_regions = []; self._field_pill_regions = []; self._cb_regions = []
+        self._pill_regions = []; self._field_pill_regions = []
         self.stats_scroll = 0; self.stats_focused = False; self._stats_pane_x = 0
         self._load_q = _queue.SimpleQueue(); self._stats_q = _queue.SimpleQueue()
         self._settype_q = _queue.SimpleQueue(); self._docker_fetch_q = _queue.SimpleQueue()
@@ -1455,8 +1474,7 @@ class LogApp:
         # This must match the nav_idx increment order in _draw_statsbar exactly.
         level = list(self.pills.values())
         field = [pill for _, _, pill in self._field_pill_regions]
-        return level + field
-
+        return list(self.toggle_pills) + level + field
     def _clamp_pill_focus(self) -> None:
         pills = self._navigable_pills()
         if not pills:
@@ -1473,7 +1491,8 @@ class LogApp:
                  else self.level_filter).add(p.level_key)
 
     def _set_pending_pill(self, pill) -> None:
-        # Tracked via field_type, value tuple to survive FieldPillState draw call recreation
+        if isinstance(pill, TogglePillState):
+            return
         key = (pill.field_type, pill.value) if isinstance(pill, FieldPillState) \
               else ('_level', pill.level_key)
         if self._pending_pill == key:
@@ -1492,6 +1511,8 @@ class LogApp:
 
     def _pill_is_pending(self, pill) -> bool:
         if self._pending_pill is None:
+            return False
+        if isinstance(pill, TogglePillState):
             return False
         key = (pill.field_type, pill.value) if isinstance(pill, FieldPillState) \
               else ('_level', pill.level_key)
@@ -1592,7 +1613,10 @@ class LogApp:
 
                 elif ch == ord(' ') and pills:
                     pill = pills[self.pill_focus_idx]
-                    if isinstance(pill, LevelPillState):
+                    if isinstance(pill, TogglePillState):
+                        self._cancel_pending_pill()
+                        pill.toggle(); self._apply_filter()
+                    elif isinstance(pill, LevelPillState):
                         self._cancel_pending_pill()
                         pill.toggle(invert=False)
                         self._rebuild_level_filters()
@@ -1603,7 +1627,9 @@ class LogApp:
                 elif ch in (curses.KEY_BACKSPACE, curses.KEY_DC, 127, 8) and pills:
                     pill = pills[self.pill_focus_idx]
                     self._cancel_pending_pill()
-                    if isinstance(pill, LevelPillState):
+                    if isinstance(pill, TogglePillState):
+                        pass
+                    elif isinstance(pill, LevelPillState):
                         pill.reset()
                         self._rebuild_level_filters()
                         self._apply_filter()
@@ -1614,7 +1640,9 @@ class LogApp:
                 elif ch == ord('i') and pills:
                     pill = pills[self.pill_focus_idx]
                     self._cancel_pending_pill()
-                    if isinstance(pill, LevelPillState):
+                    if isinstance(pill, TogglePillState):
+                        pass
+                    elif isinstance(pill, LevelPillState):
                         pill.toggle(invert=True)
                         self._rebuild_level_filters()
                         self._apply_filter()
@@ -1719,6 +1747,8 @@ class LogApp:
         self.dirty = True
 
     def _handle_filter_click(self, mx):
+        self.focus = 'filter'
+    def _handle_pill_click(self, mx, left, right):
         for xs, xe, name in self._cb_regions:
             if xs <= mx < xe:
                 if name == 'regex': self.use_regex = not self.use_regex
@@ -1731,9 +1761,12 @@ class LogApp:
         for xs, xe, pill in self._pill_regions:
             if xs <= mx < xe:
                 self._cancel_pending_pill()
-                pill.toggle(invert=right)
-                self._rebuild_level_filters()
-                self._apply_filter(); return
+                if isinstance(pill, TogglePillState):
+                    pill.toggle(); self._apply_filter()
+                elif isinstance(pill, LevelPillState):
+                    pill.toggle(invert=right)
+                    self._rebuild_level_filters(); self._apply_filter()
+                return
         for xs, xe, pill in self._field_pill_regions:
             if xs <= mx < xe:
                 if left:
@@ -1842,7 +1875,7 @@ class LogApp:
 
         if self.focus == 'filter' and not self.overlay:
             curses.curs_set(1)
-            cbw = 22; ew = max(1, mx - 9 - cbw)
+            ew = max(1, mx - 9)
             self.edit_field.draw(stdscr, 1, 9, ew, True)
         else:
             curses.curs_set(0)
@@ -1859,34 +1892,36 @@ class LogApp:
     def _draw_filter(self, s, mx):
         _cb_defs = [('Regex','regex',self.use_regex),('Case','case',self.case_sens),('Ln','lno',self.show_lineno)]
         cbw = sum(len(f' [ ]{label} ') for label, _, _ in _cb_defs)
-        ew = max(1, mx - 9 - cbw)
+        ew = max(1, mx - 9)
         _safe(s, 1, 0, ' Filter: ', 9, _attr('fl'))
         if self.focus != 'filter': self.edit_field.draw(s, 1, 9, ew, False)
-        self._cb_regions = []; cx = 9 + ew
-        for label, name, state in _cb_defs:
-            m = 'x' if state else ' '
-            t = f' [{m}]{label} '; sx = cx
-            _safe(s, 1, cx, t, len(t), _attr('fc')); cx += len(t)
-            self._cb_regions.append((sx, cx, name))
-        if cx < mx: _safe(s, 1, cx, ' ' * (mx - cx), mx - cx, _attr('fc'))
-
+        tail = 9 + ew
+        if tail < mx: _safe(s, 1, tail, ' ' * (mx - tail), mx - tail, _attr('fc'))
     def _draw_statsbar(self, s, mx):
         self._pill_regions = []; self._field_pill_regions = []; x = 0
-        tt = f' Total {len(self.data.store):,}  '
-        _safe(s, 2, x, tt, len(tt), _attr('st')); x += len(tt)
         in_pill_mode = self.focus == 'filter' and self.filter_submode == 'pills'
         nav_idx = 0
+        for tp in self.toggle_pills:
+            is_focused = in_pill_mode and nav_idx == self.pill_focus_idx
+            attr = 'hsel' if is_focused else tp.attr_name()
+            t = tp.render_text(); sx = x
+            _safe(s, 2, x, t, len(t), _attr(attr)); x += len(t)
+            self._pill_regions.append((sx, x, tp))
+            nav_idx += 1
+        div = ' \u2502'
+        _safe(s, 2, x, div, len(div), _attr('st')); x += len(div)
         for p in self.pills.values():
             is_focused = in_pill_mode and nav_idx == self.pill_focus_idx
             is_pending = self._pill_is_pending(p)
             attr = 'hsel' if (is_focused or is_pending) else p.attr_name()
-            t = p.render_text()
-            sx = x
+            t = p.render_text(); sx = x
             _safe(s, 2, x, t, len(t), _attr(attr)); x += len(t)
             self._pill_regions.append((sx, x, p))
             nav_idx += 1
+        div2 = '  \u2502'
+        _safe(s, 2, x, div2, len(div2), _attr('st')); x += len(div2)
         if self.filter_err:
-            e = '  \u26a0 bad regex'
+            e = ' \u26a0 bad regex '
             _safe(s, 2, x, e, len(e), _attr('ferr')); x += len(e)
         if self.filter_text and not self.filter_err:
             lb = 're' if self.use_regex else '~'
@@ -1913,8 +1948,11 @@ class LogApp:
         if self._pending:
             p = self._pending; t = f' \u25c8{p["label"]}:{p["value"][:24]} ? '
             _safe(s, 2, x, t, len(t), _attr('hsel')); x += len(t)
-        if x < mx: _safe(s, 2, x, ' ' * (mx - x), mx - x, _attr('st'))
-
+        tt = f' Total {len(self.data.store):,} '
+        pad_start = max(x, mx - len(tt))
+        if pad_start > x:
+            _safe(s, 2, x, ' ' * (pad_start - x), pad_start - x, _attr('st'))
+        _safe(s, 2, pad_start, tt, len(tt), _attr('st'))
     def _draw_body(self, s, ys, h, xs, w):
         for row in range(h):
             y = ys + row; idx = self.viewport_off + row
