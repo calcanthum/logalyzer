@@ -42,7 +42,6 @@ from collections import defaultdict, Counter
 from datetime import datetime
 from pathlib import Path
 
-# Palette
 
 PALETTE = [
     # chrome
@@ -96,7 +95,6 @@ PALETTE = [
     ('hm',       'black',             'yellow'),
     ('hsel',     'black,bold',        'dark cyan'),
     ('lno',      'dark gray',         'default'),
-    # scrollbar
     ('scrollbar_thumb', 'dark cyan',   'default'),
     ('scrollbar_trough','dark gray',   'default'),
     # stats pane
@@ -121,8 +119,6 @@ PALETTE = [
 
 _BASE_ATTR  = {'error': 'le', 'warn': 'lw', 'info': 'li', 'debug': 'ld'}
 _BASE_ATTRS = frozenset({'ln', 'le', 'lw', 'li', 'ld'})
-
-# Curses color mapping
 
 _URWID_FG_MAP = {
     'black':         curses.COLOR_BLACK,
@@ -180,8 +176,6 @@ def init_colors(no_color: bool = False) -> None:
 def _attr(name: str) -> int:
     return COLOR_PAIRS.get(name, curses.A_NORMAL)
 
-
-# Log Type System
 
 LOGTYPE_DIR      = Path(__file__).parent / 'logtypes'
 DOCKER_SOCKET    = '/var/run/docker.sock'
@@ -867,7 +861,7 @@ class FIFOStreamer:
 
     def _run(self) -> None:
         try:
-            fd = os.open(self._path, os.O_RDONLY)          # blocks until writer ready
+            fd = os.open(self._path, os.O_RDONLY)   # blocks until writer ready
             with os.fdopen(fd, errors='replace') as fh:
                 for raw in fh:
                     if self._stop.is_set():
@@ -1120,8 +1114,6 @@ def draw_token_row(win, y, x, width, tokens, fill):
         _safe(win, y, col, ' ' * (end - col), end - col, _attr(fill))
 
 
-# Streaming session state
-
 class _StreamSession:
     """Unified detection state for an active Docker or FIFO stream.
 
@@ -1181,9 +1173,9 @@ class LogApp:
         self._settype_q = _queue.SimpleQueue(); self._docker_fetch_q = _queue.SimpleQueue()
         self._stats_data = None
 
-        self._streamer:       DockerStreamer | None  = None   # active Docker streamer
-        self._fifo_streamer:  FIFOStreamer   | None  = None   # active FIFO streamer
-        self._stream_session: _StreamSession | None  = None   # shared detection state
+        self._streamer:       DockerStreamer | None  = None
+        self._fifo_streamer:  FIFOStreamer   | None  = None
+        self._stream_session: _StreamSession | None  = None
 
         self._status = StatusIndicator(); self._export_status = ''
         self._filter_deadline = None; self._last_spin_tick = 0.0
@@ -1355,7 +1347,7 @@ class LogApp:
         else:
             self.filter_re = None; self.filter_err = False
 
-        # ── Short-circuit: no filters active, every line matches ─────────────
+        # Short-circuit: no filters active, every line matches
         if not text and not lf and not lf_i and not ff:
             self.matched = list(range(len(store)))
             self._refresh_pill_counts()
@@ -1365,7 +1357,7 @@ class LogApp:
             self.dirty = True
             return
 
-        # ── Resolve field filters once outside the loop ──────────────────────
+        # Resolve field filters once outside the loop
         ff_fields = {}
         for ft, values in ff.items():
             f = next((f for f in self.log_type.stat_fields if f.type == ft), None)
@@ -1374,10 +1366,6 @@ class LogApp:
                 exc = {v for v in values if (ft, v) in ff_i}
                 ff_fields[ft] = (f, inc, exc)
 
-        # ── Decide text-match strategy once, outside the loop ────────────────
-        # Literal searches bypass the regex engine entirely.
-        # Case-insensitive literal: use the pre-lowercased cache on LineStore
-        # so the inner loop never calls .lower() at all.
         text_active   = bool(text) and not self.filter_err
         use_literal   = text_active and not self.use_regex
         use_regex_pat = text_active and self.use_regex and pat is not None
@@ -1389,9 +1377,9 @@ class LogApp:
                 needle = text
             else:
                 needle      = text.lower()
-                lines_lower = store._lines_lower   # pre-built, no per-call cost
+                lines_lower = store._lines_lower
 
-        # ── Main filter loop ─────────────────────────────────────────────────
+        # Main filter loop
         _lines  = store._lines
         _levels = store._levels
         matched = []
@@ -1465,7 +1453,6 @@ class LogApp:
 
     def _navigable_pills(self) -> list:
         # This must match the nav_idx increment order in _draw_statsbar exactly.
-
         level = list(self.pills.values())
         field = [pill for _, _, pill in self._field_pill_regions]
         return level + field
@@ -2138,7 +2125,6 @@ class LogApp:
         win.noutrefresh()
 
 
-# Entry point
 
 def main():
     ap = argparse.ArgumentParser(description='LogAlyzer \u2014 Terminal log analyzer',
@@ -2197,7 +2183,6 @@ def main():
 
         while app.running:
             app.drain_queues(); app.check_timers()
-            # File tail polling
             if app.tail_mode and not app._stream_session and file_mode:
                 new = app.data.poll_new()
                 if new:
