@@ -48,6 +48,16 @@ To add a type, copy an existing JSON file and edit it.
 | `g` / `G` | Top / bottom |
 | `q` | Quit |
 
+## Mouse
+
+| Action | Result |
+|--------|--------|
+| Scroll wheel | Navigate the log |
+| Click level pill | Toggle level filter |
+| Click a field value | Select field filter (apply with second click) |
+| Left click on a field pill | Remove that filter |
+| Right click on a field pill | Invert that filter |
+
 ## Filtering
 
 **Text:** Press `/` and type. Toggle Regex and Case checkboxes at the right of the filter bar.
