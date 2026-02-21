@@ -1857,13 +1857,13 @@ class LogApp:
         draw_token_row(s, 0, 0, mx, tok, 'header')
 
     def _draw_filter(self, s, mx):
-        cbw = 22; ew = max(1, mx - 9 - cbw)
+        _cb_defs = [('Regex','regex',self.use_regex),('Case','case',self.case_sens),('Ln','lno',self.show_lineno)]
+        cbw = sum(len(f' [ ]{label} ') for label, _, _ in _cb_defs)
+        ew = max(1, mx - 9 - cbw)
         _safe(s, 1, 0, ' Filter: ', 9, _attr('fl'))
         if self.focus != 'filter': self.edit_field.draw(s, 1, 9, ew, False)
         self._cb_regions = []; cx = 9 + ew
-        for label, name, state in [('Regex','regex',self.use_regex),
-                                    ('Case','case',self.case_sens),
-                                    ('#','lno',self.show_lineno)]:
+        for label, name, state in _cb_defs:
             m = 'x' if state else ' '
             t = f' [{m}]{label} '; sx = cx
             _safe(s, 1, cx, t, len(t), _attr('fc')); cx += len(t)
