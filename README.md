@@ -55,7 +55,7 @@ To add a type, copy an existing JSON file and edit it.
 | Scroll wheel | Navigate the log |
 | Click level pill | Toggle level filter |
 | Click a field value | Select field filter (apply with second click) |
-| Left click on a field pill | Remove that filter |
+| Double click on a field pill | Remove that filter |
 | Right click on a field pill | Invert that filter |
 
 ## Filtering
