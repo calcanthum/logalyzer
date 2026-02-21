@@ -100,6 +100,8 @@ Shows an activity histogram and top values for filterable fields, computed from 
 
 Levels: `error`, `warn`, `info`, `debug`.
 
+**`level_labels`** — override pill display names, e.g. `"error": "5xx"`.
+
 **`highlights`** — apply color to matched spans. Only recolors spans still at their base attribute.
 
 ```json
@@ -120,8 +122,6 @@ Levels: `error`, `warn`, `info`, `debug`.
   "filterable": true
 }
 ```
-
-**`level_labels`** — override pill display names, e.g. `"error": "5xx"`.
 
 | Key | Notes |
 |-----|-------|
