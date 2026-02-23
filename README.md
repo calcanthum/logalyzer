@@ -1,6 +1,6 @@
 # LogAlyzer
 
-Terminal log viewer with filtering, stats, live tail, and mouse support. No dependencies beyond Python 3.10+.
+Terminal log viewer with filtering, stats, live tail, and mouse support. No dependencies beyond Python 3.7+.
 
 ```
 python logalyzer.py -f <logfile>
