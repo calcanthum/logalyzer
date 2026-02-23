@@ -247,6 +247,7 @@ def _bucket_key(ts, span_secs: float) -> str:
 
 # Stats engine
 def compute_stats(store, indices: list, log_type=None, n_top: int = 8):
+    # Compute activity histogram and top-N value counts for each filterable field over the given line indices.
     fields       = getattr(log_type, 'stat_fields', [])
     field_by_type = {f.type: f for f in fields}
 
@@ -1350,6 +1351,10 @@ class LogApp:
     # Filter engine
 
     def _apply_filter(self):
+        """
+        Rebuild self.matched from lines passing all active filters (text, level, field).
+        Updates pill counts, viewport, and dirty flag.
+        """
         text = self.filter_text; store = self.data.store
         lf, lf_i = self.level_filter, self.level_filter_inverted
         ff, ff_i = self.field_filters, self.field_filters_inverted
