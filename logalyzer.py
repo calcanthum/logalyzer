@@ -25,7 +25,7 @@ Mouse:    scroll wheel navigates the log; click level pills to filter
 
 Log type definitions live in ./logtypes/*.json — copy and edit to add custom types.
 """
-
+from __future__ import annotations
 import curses
 import re
 import os
