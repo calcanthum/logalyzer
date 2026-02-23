@@ -201,6 +201,134 @@ _RE_PATH_ID = re.compile(r'/(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27})(?=/|$)', re.I)
 def _normalize_path(path: str) -> str:
     return _RE_PATH_ID.sub('/{id}', path)
 
+_UNK_PAIR_OPEN  = {'[': ']', '{': '}', '(': ')'}
+_UNK_PAIR_CLOSE = {v: k for k, v in _UNK_PAIR_OPEN.items()}
+_UNK_PAIR_QUOTE = ('"', "'")
+_UNK_CANDIDATE_DELIMS = ['|', ',', ';', '\t', ' ']
+
+
+def _unk_count_delim(line: str, delim: str) -> int:
+    depth = 0
+    in_quote: str | None = None
+    count = 0
+    i = 0
+    n = len(line)
+    dlen = len(delim)
+    while i < n:
+        ch = line[i]
+        if in_quote:
+            if ch == in_quote:
+                in_quote = None
+        elif ch in _UNK_PAIR_QUOTE and depth == 0:
+            in_quote = ch
+        elif ch in _UNK_PAIR_OPEN:
+            depth += 1
+        elif ch in _UNK_PAIR_CLOSE and depth > 0:
+            depth -= 1
+        elif depth == 0:
+            if line[i:i + dlen] == delim:
+                count += 1
+                i += dlen
+                continue
+        i += 1
+    return count
+
+def _unk_split(line: str, delim: str) -> list:
+    fields: list = []
+    depth    = 0
+    in_quote: str | None = None
+    fs       = 0          # current field start offset
+    i        = 0
+    n        = len(line)
+    dlen     = len(delim)
+    space    = (delim == ' ')
+
+    def _emit(raw_start: int, raw_end: int) -> None:
+        raw = line[raw_start:raw_end]
+        val = raw.strip()
+        # Strip the outermost pair chars so the stored value is clean.
+        if len(val) >= 2:
+            if val[0] in _UNK_PAIR_OPEN and val[-1] == _UNK_PAIR_OPEN[val[0]]:
+                val = val[1:-1].strip()
+            elif val[0] in _UNK_PAIR_QUOTE and val[-1] == val[0]:
+                val = val[1:-1]
+        if val:
+            fields.append((val, raw_start, raw_end))
+
+    while i < n:
+        ch = line[i]
+        if in_quote:
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in _UNK_PAIR_QUOTE and depth == 0:
+            in_quote = ch
+            i += 1
+            continue
+        if ch in _UNK_PAIR_OPEN:
+            depth += 1
+            i += 1
+            continue
+        if ch in _UNK_PAIR_CLOSE and depth > 0:
+            depth -= 1
+            i += 1
+            continue
+        if depth == 0:
+            if space and ch == ' ':
+                _emit(fs, i)
+                i += 1
+                while i < n and line[i] == ' ':
+                    i += 1
+                fs = i
+                continue
+            if not space and line[i:i + dlen] == delim:
+                _emit(fs, i)
+                fs = i + dlen
+                i += dlen
+                continue
+        i += 1
+
+    _emit(fs, n)
+    return fields
+
+def _unk_split_best(line: str, primary: str) -> list:
+    fields = _unk_split(line, primary)
+    if len(fields) > 1:
+        return fields
+    best = fields
+    for delim in _UNK_CANDIDATE_DELIMS:
+        if delim == primary:
+            continue
+        candidate = _unk_split(line, delim)
+        if len(candidate) > len(best):
+            best = candidate
+    return best
+
+def _unk_detect_delimiter(lines: list) -> str:
+    sample = [l for l in lines if l.strip()][:50]
+    if not sample:
+        return ' '
+
+    best_delim = ' '
+    best_score = -1.0
+
+    for delim in _UNK_CANDIDATE_DELIMS:
+        counts   = [_unk_count_delim(l, delim) for l in sample]
+        mean     = sum(counts) / len(counts)
+        if mean < 1.0:
+            continue
+        # Fraction of lines containing at least one occurrence.
+        coverage = sum(1 for c in counts if c >= 1) / len(counts)
+        if coverage < 0.5:
+            continue
+        penalty  = 0.7 if delim == ' ' else 1.0
+        score    = mean * coverage * penalty
+        if score > best_score:
+            best_score = score
+            best_delim = delim
+
+    return best_delim
 
 def _parse_ts(raw: str, strptime_fmt: str | None = None):
     if strptime_fmt:
@@ -529,6 +657,106 @@ class LogType:
                 spans.append((start, end))
         return spans
 
+    def analyze(self, lines: list) -> None:
+        # No-op for typed log types; overridden by UnknownLogType.
+        pass
+
+class PositionalField:
+    # dynamic field for UnknownLogType
+
+
+    def __init__(self, idx: int, label: str, delim: str,
+                 dtype: str = 'text') -> None:
+        self.type         = f'field_{idx}'
+        self.label        = label
+        self.dtype        = dtype        # 'timestamp' for the auto-detected ts column
+        self._idx         = idx
+        self._delim       = delim
+        # StatField interface attrs expected by compute_stats / _apply_filter
+        self.multi        = False
+        self.normalize    = False
+        self.error_levels: set = set()   # empty → all levels included
+        self.filterable   = True
+        self.buckets: list = []
+        self.components: list = []
+        self.format       = ''
+        self.strptime     = None
+        self.re           = None         # not regex-based
+
+    def extract(self, line: str):
+        r = self.extract_with_span(line)
+        return r[0] if r else None
+
+    def extract_with_span(self, line: str):
+        fields = _unk_split_best(line, self._delim)
+        if self._idx < len(fields):
+            val, start, end = fields[self._idx]
+            return val, start, end
+        return None
+
+
+class UnknownLogType(LogType):
+    def __init__(self) -> None:
+        super().__init__({
+            'id':          'unknown',
+            'name':        'Unknown / Generic (auto-delimit)',
+            'detect':      {},
+            'level_rules': [],
+            'highlights':  [],
+        })
+        self._delim    = ' '
+        self._analyzed = False
+
+    def filterable_spans(self, line: str) -> list:
+        if not self._analyzed:
+            return []
+        return [(start, end)
+                for _, start, end in _unk_split_best(line, self._delim)]
+
+    def analyze(self, lines: list) -> None:
+        """
+        Detect delimiter and field structure from a sample of lines.
+        Populates self.stat_fields.  Call before first use on a new file.
+        """
+        self._delim   = _unk_detect_delimiter(lines)
+        sample_splits = [_unk_split(l, self._delim)
+                         for l in lines if l.strip()][:50]
+
+        if not sample_splits:
+            self.stat_fields = []
+            self._analyzed   = True
+            return
+
+        # Field count: 75th-percentile of observed counts, capped at 24.
+        field_counts = sorted(len(s) for s in sample_splits)
+        p75          = field_counts[max(0, int(len(field_counts) * 0.75) - 1)]
+        n_fields     = min(p75, 24)
+
+        ts_idx = self._find_ts_field(sample_splits)
+
+        self.stat_fields = [
+            PositionalField(
+                idx   = i,
+                label = 'Timestamp' if i == ts_idx else f'Field {i}',
+                delim = self._delim,
+                dtype = 'timestamp' if i == ts_idx else 'text',
+            )
+            for i in range(n_fields)
+        ]
+        self._analyzed = True
+
+    def _find_ts_field(self, sample_splits: list) -> int | None:
+        hits: Counter = Counter()
+        for fields in sample_splits:
+            for i, (val, _, _) in enumerate(fields):
+                if isinstance(_extract_ts(val), datetime):
+                    hits[i] += 1
+                    break          # only count the first timestamp per line
+        if not hits:
+            return None
+        best_idx, best_count = hits.most_common(1)[0]
+        return best_idx if (best_count / len(sample_splits)) > 0.30 else None
+
 
 def load_log_types() -> list:
     types = []
@@ -545,6 +773,8 @@ def load_log_types() -> list:
             'id': 'other', 'name': 'Plain / Other (no highlighting)',
             'detect': {}, 'level_rules': [], 'highlights': [],
         }))
+    # Always available. Score returns 0
+    types.append(UnknownLogType())
     return types
 
 
@@ -1231,6 +1461,9 @@ class LogApp:
         self._pending = None; self._pending_pill = None
         self.pill_focus_idx = 0; self.filter_submode = 'text'
         self._relabel_pills(lt)
+        n      = min(100, len(self.data.store))
+        sample = [self.data.store.get_line(i) for i in range(n)]
+        lt.analyze(sample) # UnknownLogType
         self._status.set_spinner('Applying log type')
         def _w():
             nl = [lt.detect_level(self.data.store.get_line(i))
