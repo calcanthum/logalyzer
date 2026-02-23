@@ -1986,14 +1986,6 @@ class LogApp:
 
     def _handle_filter_click(self, mx):
         self.focus = 'filter'
-    def _handle_pill_click(self, mx, left, right):
-        for xs, xe, name in self._cb_regions:
-            if xs <= mx < xe:
-                if name == 'regex': self.use_regex = not self.use_regex
-                elif name == 'case': self.case_sens = not self.case_sens
-                elif name == 'lno': self.show_lineno = not self.show_lineno
-                self._apply_filter(); return
-        self.focus = 'filter'
 
     def _handle_pill_click(self, mx, left, right):
         for xs, xe, pill in self._pill_regions:
