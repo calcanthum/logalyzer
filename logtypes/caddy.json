@@ -1,0 +1,128 @@
+{
+  "_comment": "Caddy JSON access log",
+  "_format":  "{\"level\":\"...\",\"ts\":EPOCH,\"logger\":\"http.log.access\",\"msg\":\"handled request\",\"request\":{\"client_ip\":\"...\",\"proto\":\"...\",\"method\":\"...\",\"host\":\"...\",\"uri\":\"...\"},\"status\":NNN,\"size\":NNN,\"duration\":N.NNN}",
+  "id": "caddy",
+  "name": "Caddy Access Log",
+  "detect": {
+    "filename_keywords": ["caddy"],
+    "content_regex": "\"logger\":\"http\\.log\\.access\""
+  },
+  "fields": [
+    {
+      "type": "timestamp",
+      "dtype": "timestamp",
+      "regex": "\"ts\":(\\d+\\.?\\d*)",
+      "format": "epoch"
+    },
+    {
+      "type": "ip",
+      "label": "Client IP",
+      "dtype": "text",
+      "regex": "\"client_ip\":\"([^\"]+)\"",
+      "filterable": true
+    },
+    {
+      "type": "http_status",
+      "label": "HTTP Status",
+      "dtype": "numeric",
+      "regex": "\"status\":(\\d{3})",
+      "buckets": [
+        {"range": [100, 199], "label": "1xx"},
+        {"range": [200, 299], "label": "2xx"},
+        {"range": [300, 399], "label": "3xx"},
+        {"range": [400, 499], "label": "4xx"},
+        {"range": [500, 599], "label": "5xx"}
+      ],
+      "filterable": true
+    },
+    {
+      "type": "http_version",
+      "label": "HTTP Version",
+      "dtype": "text",
+      "regex": "\"proto\":\"HTTP/([\\d.]+)\"",
+      "filterable": true
+    },
+    {
+      "type": "http_method",
+      "label": "HTTP Method",
+      "dtype": "text",
+      "regex": "\"method\":\"([A-Z]+)\"",
+      "filterable": true
+    },
+    {
+      "type": "http_path",
+      "label": "HTTP Path",
+      "dtype": "text",
+      "regex": "\"uri\":\"([^\"]+)\"",
+      "normalize": true,
+      "filterable": true
+    },
+    {
+      "type": "host",
+      "label": "Host",
+      "dtype": "text",
+      "regex": "\"host\":\"([^\"]+)\"",
+      "filterable": true
+    },
+    {
+      "type": "endpoint",
+      "dtype": "compound",
+      "components": ["http_method", "http_path"],
+      "format": "{http_method} {http_path}"
+    },
+    {
+      "type": "duration",
+      "label": "Duration",
+      "dtype": "numeric",
+      "regex": "\"duration\":(\\d+\\.?\\d*)",
+      "unit": "seconds"
+    },
+    {
+      "type": "size",
+      "label": "Response Size",
+      "dtype": "numeric",
+      "regex": "\"size\":(\\d+)",
+      "unit": "bytes"
+    },
+    {
+      "type": "user_agent",
+      "dtype": "text",
+      "regex": "\"User-Agent\":\\[\"([^\"]+)\"\\]",
+      "filterable": true
+    },
+    {
+      "type": "log_level",
+      "label": "Level",
+      "dtype": "text",
+      "regex": "\"level\":\"([^\"]+)\"",
+      "filterable": true
+    }
+  ],
+  "level_labels": {
+    "error": "error",
+    "warn":  "warn",
+    "info":  "info",
+    "debug": "debug"
+  },
+  "level_rules": [
+    {"regex": "\"level\":\"error\"", "level": "error"},
+    {"regex": "\"level\":\"warn\"",  "level": "warn"},
+    {"regex": "\"level\":\"info\"",  "level": "info"},
+    {"regex": "\"level\":\"debug\"", "level": "debug"}
+  ],
+  "highlights": [
+    {"regex": "\"client_ip\":\"[^\"]+\"",                "attr": "hip"},
+    {"regex": "\"ts\":\\d+\\.?\\d*",                     "attr": "lno"},
+    {"regex": "\"status\":5\\d{2}",                      "attr": "h4xx"},
+    {"regex": "\"status\":4\\d{2}",                      "attr": "h4xx"},
+    {"regex": "\"status\":3\\d{2}",                      "attr": "h3xx"},
+    {"regex": "\"status\":2\\d{2}",                      "attr": "h2ok"},
+    {"regex": "\"status\":1\\d{2}",                      "attr": "hi"},
+    {"regex": "\"method\":\"[A-Z]+\"",                   "attr": "hi"},
+    {"regex": "\"uri\":\"[^\"]+\"",                      "attr": "hi"},
+    {"regex": "\"level\":\"error\"",                     "attr": "h4xx"},
+    {"regex": "\"level\":\"warn\"",                      "attr": "h3xx"},
+    {"regex": "\"duration\":\\d+\\.\\d+",                "attr": "lno"},
+    {"regex": "\"host\":\"[^\"]+\"",                     "attr": "lno"}
+  ]
+}
